@@ -19,6 +19,7 @@ import openpi.models.pi0_fast as pi0_fast
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
+import openpi.policies.g1_policy as g1_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
@@ -89,6 +90,10 @@ class DataConfig:
 
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
+
+    # LeRobot video decode: max |query_ts - nearest_frame_ts| in seconds. Some real-world datasets have
+    # parquet timestamps extending past the actual MP4 duration; increase if decode_video_frames asserts.
+    lerobot_video_tolerance_s: float = 0.1
 
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
@@ -929,6 +934,100 @@ _CONFIGS = [
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
         num_train_steps=20_000,
+    ),
+    #
+    # G1 Humanoid Pick-Apple configs.
+    # Dataset: PhysicalAI-Robotics-GR00T-Teleop-G1/g1-pick-apple
+    # Set env var: HF_LEROBOT_HOME=/media/hzm/B412D05112D01A66/github/Isaac-GR00T_1.5/datasets
+    #
+    TrainConfig(
+        # Full fine-tuning config (requires >70GB GPU memory, e.g. A100/H100)
+        name="pi05_g1_pick_apple",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=43,
+            action_horizon=50,
+        ),
+        data=SimpleDataConfig(
+            repo_id="PhysicalAI-Robotics-GR00T-Teleop-G1/g1-pick-apple",
+            data_transforms=lambda model_cfg: _transforms.Group(
+                inputs=[g1_policy.G1Inputs(model_type=model_cfg.model_type)],
+                outputs=[g1_policy.G1Outputs(action_dim=43)],
+            ),
+            base_config=DataConfig(
+                repack_transforms=_transforms.Group(
+                    inputs=[
+                        _transforms.RepackTransform(
+                            {
+                                "observation/image": "observation.images.ego_view",
+                                "observation/state": "observation.state",
+                                "actions": "action",
+                                "prompt": "prompt",
+                            }
+                        )
+                    ]
+                ),
+                action_sequence_keys=("action",),
+                prompt_from_task=True,
+                # G1 部分 MP4 比 parquet 状态轨迹短很多（曾见 ~2.2s+ 偏差）；2.0 仍不够，需更大余量
+                lerobot_video_tolerance_s=10.0,
+            ),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=20_000,
+        batch_size=16,
+        log_interval=100,
+        save_interval=1000,
+    ),
+    TrainConfig(
+        # LoRA fine-tuning config for RTX 3090 (24GB GPU), requires ~22.5GB
+        name="pi05_g1_pick_apple_lora",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=43,
+            action_horizon=50,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=SimpleDataConfig(
+            repo_id="PhysicalAI-Robotics-GR00T-Teleop-G1/g1-pick-apple",
+            # Reuse norm stats from the full fine-tuning config assets directory
+            assets=AssetsConfig(assets_dir="./assets/pi05_g1_pick_apple"),
+            data_transforms=lambda model_cfg: _transforms.Group(
+                inputs=[g1_policy.G1Inputs(model_type=model_cfg.model_type)],
+                outputs=[g1_policy.G1Outputs(action_dim=43)],
+            ),
+            base_config=DataConfig(
+                repack_transforms=_transforms.Group(
+                    inputs=[
+                        _transforms.RepackTransform(
+                            {
+                                "observation/image": "observation.images.ego_view",
+                                "observation/state": "observation.state",
+                                "actions": "action",
+                                "prompt": "prompt",
+                            }
+                        )
+                    ]
+                ),
+                action_sequence_keys=("action",),
+                prompt_from_task=True,
+                lerobot_video_tolerance_s=10.0,
+            ),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=43,
+            action_horizon=50,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=20_000,
+        batch_size=4,
+        log_interval=100,
+        save_interval=1000,
     ),
     #
     # Debugging configs.

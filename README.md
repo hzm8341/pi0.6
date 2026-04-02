@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # openpi (pi0.6 Custom Version)
 
 openpi holds open-source models and packages for robotics, published by the [Physical Intelligence team](https://www.physicalintelligence.company/).
@@ -19,7 +18,8 @@ This is an experiment: $\pi_0$ was developed for our own robots, which differ fr
 - [Sept 2025] We released PyTorch support in openpi.
 - [Sept 2025] We released pi05, an upgraded version of pi0 with better open-world generalization.
 - [Sept 2025]: We have added an [improved idle filter](examples/droid/README_train.md#data-filtering) for DROID training.
-- [Jun 2025]: We have added [instructions](examples/droid/README_train.md) for using `openpi` to train VLAs on the full [DROID dataset](https://droid-dataset.github.io/). This is an approximate open-source implementation of the training pipeline used to train pi0-FAST-DROID. 
+- [Jun 2025]: We have added [instructions](examples/droid/README_train.md) for using `openpi` to train VLAs on the full [DROID dataset](https://droid-dataset.github.io/). This is an approximate open-source implementation of the training pipeline used to train pi0-FAST-DROID.
+- This fork adds π₀.₅ fine-tuning presets and scripts for the **Unitree G1** LeRobot dataset *g1-pick-apple* (see [G1 humanoid (pick-apple) fine-tuning](#g1-humanoid-pick-apple-fine-tuning) below).
 
 
 ## Requirements
@@ -56,6 +56,38 @@ NOTE: `GIT_LFS_SKIP_SMUDGE=1` is needed to pull LeRobot as a dependency.
 
 **Docker**: As an alternative to uv installation, we provide instructions for installing openpi using Docker. If you encounter issues with your system setup, consider using Docker to simplify installation. See [Docker Setup](docs/docker.md) for more details.
 
+This fork also ships a CUDA 12.4 training image and helper scripts at the repo root: [`Dockerfile`](Dockerfile), [`setup_env.sh`](setup_env.sh), [`train_g1_pick_apple.sh`](train_g1_pick_apple.sh), and [`run_train_openpi_image.sh`](run_train_openpi_image.sh). Use them when the upstream Docker docs do not match your G1 workflow.
+
+### G1 humanoid (pick-apple) fine-tuning
+
+Fine-tuning presets target the LeRobot dataset [`PhysicalAI-Robotics-GR00T-Teleop-G1/g1-pick-apple`](https://huggingface.co/datasets/PhysicalAI-Robotics-GR00T-Teleop-G1/g1-pick-apple) (43-DOF state/action, ego-view camera). Policy transforms live in [`src/openpi/policies/g1_policy.py`](src/openpi/policies/g1_policy.py).
+
+| Config | GPU memory (typical) | Use case |
+| ------ | -------------------- | -------- |
+| `pi05_g1_pick_apple_lora` | ~24 GB | Default in `train_g1_pick_apple.sh`; LoRA on π₀.₅ |
+| `pi05_g1_pick_apple` | > 70 GB | Full fine-tuning (e.g. A100 / H100) |
+
+**Host requirements:** Native `uv sync` needs **glibc ≥ 2.31** (many prebuilt wheels). On older hosts, build and run with the root [`Dockerfile`](Dockerfile).
+
+**Data layout:** Set `HF_LEROBOT_HOME` (or `DATASET_ROOT` for the train script) to the directory that contains your LeRobot-style dataset tree. The default is `./datasets`; that path is listed in `.gitignore` so local data is not committed.
+
+**Train:**
+
+```bash
+# Optional one-shot env install (uv + deps; see script for checkpoint download)
+bash setup_env.sh
+
+export DATASET_ROOT=/path/to/your/datasets   # optional; default: <repo>/datasets
+bash train_g1_pick_apple.sh my_experiment_name
+```
+
+Override the preset with `CONFIG=pi05_g1_pick_apple` or `CONFIG=pi05_g1_pick_apple_lora`. If a checkpoint directory for that run already exists, the script continues with **`--resume`** unless you set **`OVERWRITE=1`** (fresh run) or **`RESUME=1`** explicitly.
+
+**Docker (existing openpi image):**
+
+```bash
+OPENPI_DOCKER_IMAGE=your:image bash run_train_openpi_image.sh my_experiment_name
+```
 
 
 

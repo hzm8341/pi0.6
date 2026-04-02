@@ -1,0 +1,189 @@
+{
+    "codebase_version": "v2.0",
+    "robot_type": null,
+    "total_episodes": 311,
+    "total_frames": 29864,
+    "total_tasks": 1,
+    "total_videos": 129,
+    "total_chunks": 1,
+    "chunks_size": 311,
+    "fps": 20,
+    "splits": {
+        "train": "0:311"
+    },
+    "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+    "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+    "features": {
+        "observation.images.ego_view": {
+            "dtype": "video",
+            "shape": [
+                480,
+                640,
+                3
+            ],
+            "names": [
+                "height",
+                "width",
+                "channel"
+            ],
+            "info": {
+                "video.height": 480,
+                "video.width": 640,
+                "video.codec": "h264",
+                "video.pix_fmt": "yuv420p",
+                "video.is_depth_map": false,
+                "video.fps": 20,
+                "video.channels": 3,
+                "has_audio": false
+            }
+        },
+        "observation.state": {
+            "dtype": "float64",
+            "shape": [
+                43
+            ],
+            "names": [
+                "left_hip_pitch_joint",
+                "left_hip_roll_joint",
+                "left_hip_yaw_joint",
+                "left_knee_joint",
+                "left_ankle_pitch_joint",
+                "left_ankle_roll_joint",
+                "right_hip_pitch_joint",
+                "right_hip_roll_joint",
+                "right_hip_yaw_joint",
+                "right_knee_joint",
+                "right_ankle_pitch_joint",
+                "right_ankle_roll_joint",
+                "waist_yaw_joint",
+                "waist_roll_joint",
+                "waist_pitch_joint",
+                "left_shoulder_pitch_joint",
+                "left_shoulder_roll_joint",
+                "left_shoulder_yaw_joint",
+                "left_elbow_joint",
+                "left_wrist_roll_joint",
+                "left_wrist_pitch_joint",
+                "left_wrist_yaw_joint",
+                "left_hand_index_0_joint",
+                "left_hand_index_1_joint",
+                "left_hand_middle_0_joint",
+                "left_hand_middle_1_joint",
+                "left_hand_thumb_0_joint",
+                "left_hand_thumb_1_joint",
+                "left_hand_thumb_2_joint",
+                "right_shoulder_pitch_joint",
+                "right_shoulder_roll_joint",
+                "right_shoulder_yaw_joint",
+                "right_elbow_joint",
+                "right_wrist_roll_joint",
+                "right_wrist_pitch_joint",
+                "right_wrist_yaw_joint",
+                "right_hand_index_0_joint",
+                "right_hand_index_1_joint",
+                "right_hand_middle_0_joint",
+                "right_hand_middle_1_joint",
+                "right_hand_thumb_0_joint",
+                "right_hand_thumb_1_joint",
+                "right_hand_thumb_2_joint"
+            ]
+        },
+        "action": {
+            "dtype": "float64",
+            "shape": [
+                43
+            ],
+            "names": [
+                "left_hip_pitch_joint",
+                "left_hip_roll_joint",
+                "left_hip_yaw_joint",
+                "left_knee_joint",
+                "left_ankle_pitch_joint",
+                "left_ankle_roll_joint",
+                "right_hip_pitch_joint",
+                "right_hip_roll_joint",
+                "right_hip_yaw_joint",
+                "right_knee_joint",
+                "right_ankle_pitch_joint",
+                "right_ankle_roll_joint",
+                "waist_yaw_joint",
+                "waist_roll_joint",
+                "waist_pitch_joint",
+                "left_shoulder_pitch_joint",
+                "left_shoulder_roll_joint",
+                "left_shoulder_yaw_joint",
+                "left_elbow_joint",
+                "left_wrist_roll_joint",
+                "left_wrist_pitch_joint",
+                "left_wrist_yaw_joint",
+                "left_hand_index_0_joint",
+                "left_hand_index_1_joint",
+                "left_hand_middle_0_joint",
+                "left_hand_middle_1_joint",
+                "left_hand_thumb_0_joint",
+                "left_hand_thumb_1_joint",
+                "left_hand_thumb_2_joint",
+                "right_shoulder_pitch_joint",
+                "right_shoulder_roll_joint",
+                "right_shoulder_yaw_joint",
+                "right_elbow_joint",
+                "right_wrist_roll_joint",
+                "right_wrist_pitch_joint",
+                "right_wrist_yaw_joint",
+                "right_hand_index_0_joint",
+                "right_hand_index_1_joint",
+                "right_hand_middle_0_joint",
+                "right_hand_middle_1_joint",
+                "right_hand_thumb_0_joint",
+                "right_hand_thumb_1_joint",
+                "right_hand_thumb_2_joint"
+            ]
+        },
+        "observation.img_state_delta": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": "img_state_delta"
+        },
+        "timestamp": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "frame_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "episode_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "task_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        }
+    },
+    "discarded_episode_indices": [
+        12,
+        98
+    ]
+}

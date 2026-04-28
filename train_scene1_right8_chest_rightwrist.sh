@@ -10,6 +10,7 @@
 # To override the environment:
 #   VENV=/media/hzm/SSD_2T/GitHub/openpi/.venv
 #   DATASET_ROOT=/data/datasets
+#   NORM_STATS=/path/to/norm_stats.json
 
 set -e
 
@@ -52,12 +53,13 @@ else
 fi
 
 NORM_STATS="$SCRIPT_DIR/assets/pi05_scene1_right8_chest_wrist_finetune/scene1_right8_chest_rightwrist/norm_stats.json"
+NORM_STATS="${NORM_STATS:-$NORM_STATS}"
 if [ ! -f "$NORM_STATS" ]; then
-  echo "Computing normalization stats..."
-  $PYTHON scripts/compute_norm_stats.py --config-name pi05_scene1_right8_chest_rightwrist_lora
-else
-  echo "Norm stats already exist: $NORM_STATS"
+  echo "Error: norm stats not found at $NORM_STATS"
+  echo "Set NORM_STATS=/path/to/norm_stats.json or copy an existing file into that location."
+  exit 1
 fi
+echo "Using norm stats: $NORM_STATS"
 
 CONFIG="${CONFIG:-pi05_scene1_right8_chest_rightwrist_lora}"
 EXP_NAME="${1:-scene1_right8_chest_rightwrist_run1}"

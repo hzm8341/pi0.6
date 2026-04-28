@@ -21,6 +21,7 @@ import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.g1_policy as g1_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.scene1_policy as scene1_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
@@ -1028,6 +1029,67 @@ _CONFIGS = [
         batch_size=4,
         log_interval=100,
         save_interval=1000,
+    ),
+    TrainConfig(
+        # LoRA fine-tuning config for the local Scene 1 dataset.
+        # This keeps most pretrained weights frozen and is the safest default for small custom datasets.
+        name="pi05_scene1_right8_chest_rightwrist_lora",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=8,
+            action_horizon=16,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=SimpleDataConfig(
+            repo_id="scene1_right8_chest_rightwrist",
+            assets=AssetsConfig(
+                assets_dir="./assets/pi05_scene1_right8_chest_wrist_finetune",
+                asset_id="scene1_right8_chest_rightwrist",
+            ),
+            data_transforms=lambda model_cfg: _transforms.Group(
+                inputs=[scene1_policy.Scene1Inputs(model_type=model_cfg.model_type)],
+                outputs=[scene1_policy.Scene1Outputs(action_dim=8)],
+            ),
+            base_config=DataConfig(
+                repack_transforms=_transforms.Group(
+                    inputs=[
+                        _transforms.RepackTransform(
+                            {
+                                "observation/image": "observation.images.chest_cam",
+                                "observation/wrist_image": "observation.images.wrist_cam_right",
+                                "observation/state": "observation.state",
+                                "actions": "action",
+                                "prompt": "prompt",
+                            }
+                        )
+                    ]
+                ),
+                action_sequence_keys=("action",),
+                prompt_from_task=True,
+            ),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("./openpi-assets/checkpoints/pi05_base/params"),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=8,
+            action_horizon=16,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        num_train_steps=20_000,
+        batch_size=16,
+        log_interval=100,
+        save_interval=1000,
+        keep_period=5000,
     ),
     #
     # Debugging configs.

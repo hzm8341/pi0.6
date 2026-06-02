@@ -8,3 +8,4 @@ def test_recap_train_config_defaults():
     assert config.output_dir == Path("outputs/recap")
     assert config.num_iterations == 3
     assert config.demo_dataset_path == "demo"
+    assert config.iteration.positive_fraction == 0.4

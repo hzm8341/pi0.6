@@ -267,6 +267,24 @@ class TokenizePrompt(DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class TokenizeReCAPAdvantage(DataTransformFn):
+    tokenizer: _tokenizer.PaligemmaTokenizer
+    max_len: int = 8
+
+    def __call__(self, data: DataDict) -> DataDict:
+        if "advantage_indicator" not in data:
+            return data
+
+        pos_tokens, pos_mask = self.tokenizer.tokenize("Advantage: positive")
+        neg_tokens, neg_mask = self.tokenizer.tokenize("Advantage: negative")
+        data["tokenized_advantage_positive"] = pos_tokens[: self.max_len].astype(np.int32)
+        data["tokenized_advantage_negative"] = neg_tokens[: self.max_len].astype(np.int32)
+        data["tokenized_advantage_mask"] = np.logical_or(pos_mask[: self.max_len], neg_mask[: self.max_len])
+        data.setdefault("use_advantage", np.asarray(True))
+        return data
+
+
+@dataclasses.dataclass(frozen=True)
 class TokenizeFASTInputs(DataTransformFn):
     tokenizer: _tokenizer.FASTTokenizer
 
@@ -539,4 +557,3 @@ class TokenizeMemory(DataTransformFn):
             [True] * len(ids) + [False] * pad, dtype=bool
         )
         return result
-

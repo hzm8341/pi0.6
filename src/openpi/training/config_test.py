@@ -12,3 +12,10 @@ def test_scene1_lora_config_is_registered_and_local():
     assert cfg.data.assets.assets_dir == "./assets/pi05_scene1_right8_chest_wrist_finetune"
     assert cfg.weight_loader.params_path == "./openpi-assets/checkpoints/pi05_base/params"
     assert cfg.freeze_filter is not None
+
+
+def test_debug_pi05_recap_config_is_registered():
+    cfg = _config.get_config("debug_pi05_recap")
+
+    assert cfg.model.recap.enabled is True
+    assert cfg.model.pi05 is True

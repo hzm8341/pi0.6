@@ -110,6 +110,9 @@ class Pi0(_model.BaseModel):
         self.use_language_memory = config.use_language_memory
         self.use_state_history = config.use_state_history
         self.num_video_frames = K
+        self.recap_enabled = config.recap.enabled
+        self.recap_alpha = config.recap.alpha
+        self.recap_advantage_dropout_prob = config.recap.advantage_dropout_prob
 
         # Linear projection for proprioceptive history (continuous embedding).
         if config.use_video_memory and config.use_state_history:
@@ -173,6 +176,26 @@ class Pi0(_model.BaseModel):
             tokens.append(state_hist_tokens)
             input_mask.append(jnp.ones(state_hist_tokens.shape[:2], dtype=jnp.bool_))
             ar_mask += [False] * state_hist_tokens.shape[1]
+
+        # ── (E) RECAP advantage condition tokens ─────────────────────────────
+        if (
+            self.recap_enabled
+            and obs.advantage_indicator is not None
+            and obs.use_advantage is not None
+            and obs.tokenized_advantage_positive is not None
+            and obs.tokenized_advantage_negative is not None
+            and obs.tokenized_advantage_mask is not None
+        ):
+            adv_ids = jnp.where(
+                obs.advantage_indicator[:, None],
+                obs.tokenized_advantage_positive,
+                obs.tokenized_advantage_negative,
+            )
+            adv_tokens = self.PaliGemma.llm(adv_ids, method="embed")
+            adv_mask = jnp.logical_and(obs.tokenized_advantage_mask, obs.use_advantage[:, None])
+            tokens.append(adv_tokens)
+            input_mask.append(adv_mask)
+            ar_mask += [False] * adv_tokens.shape[1]
 
         tokens = jnp.concatenate(tokens, axis=1)
         input_mask = jnp.concatenate(input_mask, axis=1)
@@ -276,6 +299,11 @@ class Pi0(_model.BaseModel):
     def compute_loss(
         self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
     ) -> at.Float[at.Array, "*b ah"]:
+        return self._flow_matching_loss(rng, observation, actions, train=train)
+
+    def _flow_matching_loss(
+        self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
+    ) -> at.Float[at.Array, "*b ah"]:
         preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
         observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
 
@@ -299,6 +327,22 @@ class Pi0(_model.BaseModel):
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
         return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+
+    def compute_recap_loss(
+        self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
+    ) -> at.Float[at.Array, "*b ah"]:
+        dropout_rng, uncond_rng, cond_rng = jax.random.split(rng, 3)
+        batch_size = actions.shape[0]
+        keep = jax.random.bernoulli(
+            dropout_rng,
+            p=1.0 - self.recap_advantage_dropout_prob,
+            shape=(batch_size,),
+        )
+        uncond_obs = observation.replace(use_advantage=jnp.zeros((batch_size,), dtype=jnp.bool_))
+        cond_obs = observation.replace(use_advantage=keep)
+        loss_uncond = self._flow_matching_loss(uncond_rng, uncond_obs, actions, train=train)
+        loss_cond = self._flow_matching_loss(cond_rng, cond_obs, actions, train=train)
+        return loss_uncond + self.recap_alpha * loss_cond
 
     @override
     def sample_actions(

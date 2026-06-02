@@ -123,6 +123,14 @@ class Observation(Generic[ArrayT]):
     # Validity mask for language memory tokens.
     tokenized_memory_mask: at.Bool[ArrayT, "*b m"] | None = None
 
+    # π0.6-RECAP fields. Optional defaults keep π0.5/MEM observations compatible.
+    advantage_indicator: at.Bool[ArrayT, "*b"] | None = None
+    use_advantage: at.Bool[ArrayT, "*b"] | None = None
+    is_human_intervention: at.Bool[ArrayT, "*b"] | None = None
+    tokenized_advantage_positive: at.Int[ArrayT, "*b l"] | None = None
+    tokenized_advantage_negative: at.Int[ArrayT, "*b l"] | None = None
+    tokenized_advantage_mask: at.Bool[ArrayT, "*b l"] | None = None
+
     @classmethod
     def from_dict(cls, data: at.PyTree[ArrayT]) -> "Observation[ArrayT]":
         """This method defines the mapping between unstructured data (i.e., nested dict) to the structured Observation format."""
@@ -163,6 +171,13 @@ class Observation(Generic[ArrayT]):
             state_history=data.get("state_history"),
             tokenized_memory=data.get("tokenized_memory"),
             tokenized_memory_mask=data.get("tokenized_memory_mask"),
+            # RECAP fields
+            advantage_indicator=data.get("advantage_indicator"),
+            use_advantage=data.get("use_advantage"),
+            is_human_intervention=data.get("is_human_intervention"),
+            tokenized_advantage_positive=data.get("tokenized_advantage_positive"),
+            tokenized_advantage_negative=data.get("tokenized_advantage_negative"),
+            tokenized_advantage_mask=data.get("tokenized_advantage_mask"),
         )
 
     def to_dict(self) -> at.PyTree[ArrayT]:
@@ -266,6 +281,13 @@ def preprocess_observation(
         state_history=observation.state_history,
         tokenized_memory=observation.tokenized_memory,
         tokenized_memory_mask=observation.tokenized_memory_mask,
+        # RECAP fields
+        advantage_indicator=observation.advantage_indicator,
+        use_advantage=observation.use_advantage,
+        is_human_intervention=observation.is_human_intervention,
+        tokenized_advantage_positive=observation.tokenized_advantage_positive,
+        tokenized_advantage_negative=observation.tokenized_advantage_negative,
+        tokenized_advantage_mask=observation.tokenized_advantage_mask,
     )
 
 

@@ -52,6 +52,18 @@ class MEMConfig:
 
 
 @dataclasses.dataclass(frozen=True)
+class ReCAPConfig:
+    enabled: bool = False
+    alpha: float = 1.0
+    advantage_dropout_prob: float = 0.1
+    positive_quantile: float = 0.4
+    value_bins: int = 201
+    value_min: float = -1.0
+    value_max: float = 0.0
+    n_step_lookahead: int = 50
+
+
+@dataclasses.dataclass(frozen=True)
 class Pi0Config(_model.BaseModelConfig):
     dtype: str = "bfloat16"
     paligemma_variant: _gemma.Variant = "gemma_2b"
@@ -70,6 +82,7 @@ class Pi0Config(_model.BaseModelConfig):
 
     # π0.6-MEM configuration (defaults → π0.5 compatible)
     mem: MEMConfig = dataclasses.field(default_factory=MEMConfig)
+    recap: ReCAPConfig = dataclasses.field(default_factory=ReCAPConfig)
 
     def __post_init__(self):
         if self.max_token_len is None:
@@ -162,4 +175,3 @@ class Pi0Config(_model.BaseModelConfig):
         if not filters:
             return nnx.Nothing
         return nnx.All(*filters)
-

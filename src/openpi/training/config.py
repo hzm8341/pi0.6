@@ -170,6 +170,26 @@ class ModelTransformFactory(GroupFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class ReCAPModelTransformFactory(GroupFactory):
+    default_prompt: str | None = None
+    advantage_max_len: int = 8
+
+    def __call__(self, model_config: _model.BaseModelConfig) -> _transforms.Group:
+        group = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        recap_config = getattr(model_config, "recap", None)
+        if recap_config is None or not recap_config.enabled:
+            return group
+        return group.push(
+            inputs=[
+                _transforms.TokenizeReCAPAdvantage(
+                    _tokenizer.PaligemmaTokenizer(self.advantage_max_len),
+                    max_len=self.advantage_max_len,
+                )
+            ]
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class DataConfigFactory(abc.ABC):
     # The LeRobot repo id.
     repo_id: str = tyro.MISSING
@@ -259,6 +279,8 @@ class LeRobotAlohaDataConfig(DataConfigFactory):
     )
     # Action keys that will be used to read the action sequence from the dataset.
     action_sequence_keys: Sequence[str] = ("action",)
+    # Factory for model-specific tokenization/transforms.
+    model_transforms: tyro.conf.Suppress[GroupFactory] = dataclasses.field(default_factory=ModelTransformFactory)
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -273,7 +295,10 @@ class LeRobotAlohaDataConfig(DataConfigFactory):
                 outputs=[_transforms.AbsoluteActions(delta_action_mask)],
             )
 
-        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        if isinstance(self.model_transforms, ModelTransformFactory):
+            model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        else:
+            model_transforms = self.model_transforms(model_config)
 
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),
@@ -581,6 +606,33 @@ _CONFIGS = [
         data=LeRobotAlohaDataConfig(
             assets=AssetsConfig(asset_id="trossen"),
         ),
+        policy_metadata={"reset_pose": [0, -1.5, 1.5, 0, 0, 0]},
+    ),
+    TrainConfig(
+        name="pi05_recap",
+        model=pi0_config.Pi0Config(pi05=True, recap=pi0_config.ReCAPConfig(enabled=True)),
+        data=SimpleDataConfig(model_transforms=ReCAPModelTransformFactory()),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        batch_size=64,
+        num_train_steps=30_000,
+    ),
+    TrainConfig(
+        name="pi05_aloha_recap",
+        model=pi0_config.Pi0Config(pi05=True, recap=pi0_config.ReCAPConfig(enabled=True)),
+        data=LeRobotAlohaDataConfig(
+            assets=AssetsConfig(asset_id="trossen"),
+            model_transforms=ReCAPModelTransformFactory(),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        batch_size=64,
+        num_train_steps=20_000,
         policy_metadata={"reset_pose": [0, -1.5, 1.5, 0, 0, 0]},
     ),
     TrainConfig(
@@ -1124,6 +1176,21 @@ _CONFIGS = [
         num_train_steps=10,
         overwrite=True,
         exp_name="debug_pi05",
+        wandb_enabled=False,
+    ),
+    TrainConfig(
+        name="debug_pi05_recap",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="dummy",
+            action_expert_variant="dummy",
+            recap=pi0_config.ReCAPConfig(enabled=True),
+        ),
+        data=FakeDataConfig(),
+        batch_size=2,
+        num_train_steps=2,
+        overwrite=True,
+        exp_name="debug_pi05_recap",
         wandb_enabled=False,
     ),
     # RoboArena & PolaRiS configs.

@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pi0.6 / RECAP 开源仓库修改建议</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      line-height: 1.75;
+      margin: 0;
+      color: #1f2937;
+      background: #f6f8fb;
+    }
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 28px 80px;
+      background: #fff;
+      box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+    }
+    h1, h2, h3 {
+      color: #0f172a;
+      line-height: 1.35;
+    }
+    h1 {
+      font-size: 30px;
+      margin-bottom: 8px;
+      border-bottom: 3px solid #2563eb;
+      padding-bottom: 14px;
+    }
+    h2 {
+      margin-top: 34px;
+      font-size: 23px;
+      border-left: 5px solid #2563eb;
+      padding-left: 12px;
+      background: #eff6ff;
+      padding-top: 8px;
+      padding-bottom: 8px;
+    }
+    h3 {
+      margin-top: 26px;
+      font-size: 19px;
+    }
+    .meta {
+      color: #64748b;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .summary {
+      background: #f8fafc;
+      border: 1px solid #dbeafe;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin: 20px 0;
+    }
+    .warning {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-left: 5px solid #f97316;
+      border-radius: 10px;
+      padding: 15px 18px;
+      margin: 18px 0;
+    }
+    .success {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-left: 5px solid #16a34a;
+      border-radius: 10px;
+      padding: 15px 18px;
+      margin: 18px 0;
+    }
+    .danger {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-left: 5px solid #dc2626;
+      border-radius: 10px;
+      padding: 15px 18px;
+      margin: 18px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #d1d5db;
+      padding: 10px 12px;
+      vertical-align: top;
+    }
+    th {
+      background: #f1f5f9;
+      color: #0f172a;
+      font-weight: 700;
+    }
+    tr:nth-child(even) td {
+      background: #fafafa;
+    }
+    code {
+      background: #f1f5f9;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+    pre {
+      background: #0f172a;
+      color: #e5e7eb;
+      padding: 16px;
+      border-radius: 10px;
+      overflow-x: auto;
+      line-height: 1.55;
+      font-size: 13px;
+    }
+    .phase {
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin: 16px 0;
+      background: #fcfcfd;
+    }
+    .phase-title {
+      font-weight: 700;
+      color: #1d4ed8;
+      margin-bottom: 8px;
+    }
+    ul, ol {
+      padding-left: 24px;
+    }
+    li {
+      margin: 5px 0;
+    }
+    .small {
+      font-size: 13px;
+      color: #64748b;
+    }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #e0f2fe;
+      color: #0369a1;
+      font-size: 12px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>pi0.6 / RECAP 开源仓库修改建议</h1>
+    <div class="meta">生成时间：2026-06-02 ｜ 目标：将当前仓库从“RECAP 风格训练雏形”推进到“可用于离线验证与后续真机 HITL-RL 的工程版本”</div>
+
+    <div class="summary">
+      <strong>总体判断：</strong>当前仓库已经完成了 RECAP 的部分工程入口，包括 advantage 字段、advantage prompt tokenization、prefix 注入、RECAP 双路 loss、reward/return/advantage 工具和迭代训练 CLI 骨架。但它还没有完成论文中的完整 π<sub>0.6</sub> / π<sup>*</sup><sub>0.6</sub> RECAP 闭环。最关键缺口是：完整视觉语言 value function、value training loop、value inference 到 advantage label 的写回、真实 rollout、human intervention 回调、以及 Algorithm 1 的自动化编排。
+    </div>
+
+    <div class="warning">
+      <strong>评估修订：</strong>本文档的总体方向与论文一致，但需要注意两个细节。第一，原先代码里的 <code>positive_quantile=0.4</code> 如果直接用于 <code>np.quantile()</code> 后再执行 <code>advantage &gt;= threshold</code>，会让约 60% 样本变成 positive；若目标是论文 fine-tuning 常用的约 40% positive，应使用 0.6 分位阈值，或把参数改名为 <code>positive_fraction</code> 并在内部转换为 <code>1 - positive_fraction</code>。第二，规则版 value proxy 只是离线工程打通方案，不等价于论文中的视觉语言 distributional value function。
+    </div>
+
+    <div class="warning">
+      <strong>建议策略：</strong>不要一开始追求完整复现论文。更现实的路线是先做“离线版 RECAP”：用已有成功/失败 episode 训练 value model 或先用规则 value proxy，生成 advantage_indicator，跑 pi05_recap 训练，验证是否优于普通 π0.5 SFT。离线版本跑通后，再接机器人 rollout 和人类干预。
+    </div>
+
+    <h2>1. 当前代码已完成的部分</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>模块</th>
+          <th>当前状态</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>RECAP 配置</td>
+          <td><span class="tag">已完成基础实现</span></td>
+          <td><code>ReCAPConfig</code> 已包含 <code>enabled</code>、<code>alpha</code>、<code>advantage_dropout_prob</code>、<code>positive_fraction</code>、<code>value_bins</code>、<code>value_min/value_max</code>、<code>n_step_lookahead</code>。</td>
+        </tr>
+        <tr>
+          <td>Observation 字段</td>
+          <td><span class="tag">已完成基础实现</span></td>
+          <td>已加入 <code>advantage_indicator</code>、<code>use_advantage</code>、<code>is_human_intervention</code>、positive/negative token 字段。</td>
+        </tr>
+        <tr>
+          <td>Advantage prompt tokenization</td>
+          <td><span class="tag">已完成基础实现</span></td>
+          <td><code>TokenizeReCAPAdvantage</code> 可生成 <code>Advantage: positive</code> / <code>Advantage: negative</code> 的固定 token。</td>
+        </tr>
+        <tr>
+          <td>Prefix 注入</td>
+          <td><span class="tag">已完成基础实现</span></td>
+          <td><code>Pi0.embed_prefix()</code> 已根据 <code>advantage_indicator</code> 注入 positive/negative tokens。注意：当前实现是追加到 prefix 末尾；论文中 advantage indicator 位于 predicted sub-task 之后、离散/连续动作之前，因此当前实现是近似接入，不是完全一致的位置复现。</td>
+        </tr>
+        <tr>
+          <td>RECAP 双路 loss</td>
+          <td><span class="tag">已完成雏形</span></td>
+          <td><code>compute_recap_loss()</code> 同时计算 unconditioned loss 与 conditioned loss，并支持 advantage dropout。</td>
+        </tr>
+        <tr>
+          <td>Reward / return / bin / advantage 工具</td>
+          <td><span class="tag">部分完成</span></td>
+          <td>已有工具函数，但不是完整 value function 系统。</td>
+        </tr>
+        <tr>
+          <td>迭代训练 CLI</td>
+          <td><span class="tag">骨架完成</span></td>
+          <td><code>scripts/recap_train.py</code> 只打印流程阶段，没有真正执行训练、采集、写回和评估。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>2. 与论文相比的关键缺口</h2>
+
+    <h3>2.1 缺少真正的 π0.6 模型规模与结构</h3>
+    <p>论文中的 π0.6 使用更大的 backbone 和 action expert，例如 Gemma 3 4B 与 860M action expert。当前仓库仍主要基于 openpi / π0.5，配置中默认是 <code>gemma_2b</code> 和 <code>gemma_300m</code>，RECAP 配置也加载 <code>pi05_base</code> checkpoint。因此当前更准确地说是：</p>
+    <pre>π0.5 + RECAP-style advantage conditioning</pre>
+    <p>而不是完整论文级 π0.6 / π<sup>*</sup><sub>0.6</sub>。</p>
+
+    <h3>2.2 缺少完整 vision-language value function</h3>
+    <p>论文要求训练一个语言条件的 distributional value function，输入图像、机器人状态和语言指令，输出 201 个 value bins，用于估计状态价值和动作 advantage。当前只有一个轻量 <code>DistributionalValueHead</code> 和几个工具函数，缺少：</p>
+    <ul>
+      <li>完整 value model backbone；</li>
+      <li>图像 + 语言 + state 的 value forward；</li>
+      <li>cross-entropy value loss；</li>
+      <li>value checkpoint 保存与加载；</li>
+      <li>value inference pipeline。</li>
+    </ul>
+
+    <h3>2.3 缺少 value inference 到 advantage label 的写回流程</h3>
+    <p>当前 <code>assign_advantage_labels()</code> 只是接收外部 advantages，然后按 quantile 打标签。它不会自动用 value model 计算 advantage，也不会把 <code>advantage_indicator</code> 写回 LeRobot dataset。</p>
+    <p>此外，当前 quantile 参数语义需要修正：如果代码使用 <code>threshold = np.quantile(advantages, positive_quantile)</code>，再把 <code>advantages &gt;= threshold</code> 标为 positive，那么 <code>positive_quantile=0.4</code> 实际会产生约 60% positive 样本。论文 Appendix F 描述 fine-tuning 通常设置约 40% rollout 数据为 positive，T-shirt/shorts 任务甚至约 10%。因此建议明确区分“分位阈值”与“positive 样本比例”。</p>
+
+    <h3>2.4 缺少 human intervention 的真实闭环</h3>
+    <p>代码中虽然有 <code>is_human_intervention</code> 字段，但还没有接入 SpaceMouse、键盘、WebSocket、遥操作手柄等人类接管回调。并且当前打标签逻辑也没有强制将 human intervention 动作标为 positive advantage。</p>
+
+    <h3>2.5 缺少真实 rollout / 仿真 rollout 采集</h3>
+    <p>论文中的 RECAP 依赖真实机器人自主执行、失败/成功标注、人类在线修正和 episode 存储。当前 <code>scripts/recap_train.py</code> 只是流程日志，缺少：</p>
+    <ul>
+      <li><code>env.reset()</code> / <code>env.step(action)</code> adapter；</li>
+      <li>policy server / robot runtime 调用；</li>
+      <li>success / done / timeout 标注；</li>
+      <li>episode recorder；</li>
+      <li>安全停止机制。</li>
+    </ul>
+
+    <h3>2.6 缺少 Algorithm 1 自动化编排</h3>
+    <p>论文 Algorithm 1 是完整闭环：</p>
+    <pre>collect data -> train value -> compute advantage -> fine-tune VLA -> repeat</pre>
+    <p>当前 CLI 只是记录流程顺序，没有实际调用子过程。</p>
+
+    <h3>2.7 RECAP loss 只覆盖 flow matching，缺少完整离散 token / sub-task 目标</h3>
+    <p>论文中 π0.6 同时包含高层 sub-task 文本、FAST 离散动作 token 和连续 flow matching action。当前 RECAP loss 主要包裹 flow matching loss，没有完整覆盖论文中的离散动作 likelihood、高层 sub-task 预测和 KI 联合训练目标。</p>
+
+    <h2>3. 修改目标分层</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>版本</th>
+          <th>目标</th>
+          <th>适用场景</th>
+          <th>建议优先级</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>V0：当前版本</td>
+          <td>advantage-conditioned VLA 训练雏形</td>
+          <td>代码验证、smoke test</td>
+          <td>已具备</td>
+        </tr>
+        <tr>
+          <td>V1：离线 RECAP</td>
+          <td>用已有 episode 训练/估计 value，写回 advantage，训练 VLA</td>
+          <td>你的试管架数据、ACT/π0.5 离线评估数据</td>
+          <td>最高</td>
+        </tr>
+        <tr>
+          <td>V2：仿真 RECAP</td>
+          <td>接 MuJoCo/Isaac Sim rollout，自动生成 success/failure</td>
+          <td>先不冒真机风险，验证闭环</td>
+          <td>高</td>
+        </tr>
+        <tr>
+          <td>V3：真机 HITL-RECAP</td>
+          <td>接真实机器人、人类干预、安全停机、episode recorder</td>
+          <td>真实试管架抓取、插槽、力控任务</td>
+          <td>中高</td>
+        </tr>
+        <tr>
+          <td>V4：论文级 π0.6</td>
+          <td>更大 backbone、完整 KI、sub-task、discrete/continuous 联合训练</td>
+          <td>长期研究复现</td>
+          <td>低于 V1/V2/V3</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>4. 第一阶段：补齐离线 RECAP，建议优先实现</h2>
+
+    <div class="phase">
+      <div class="phase-title">阶段 1.1：定义 RECAP episode 标准格式</div>
+      <p>目标是把已有 LeRobot / rosbag / eval episode 转成统一结构，后续 value training、advantage 计算、VLA 训练都基于这个格式。</p>
+      <p>建议字段：</p>
+      <pre>{
+  "episode_id": "xxx",
+  "task": "pick test tube rack and insert into slot",
+  "success": true,
+  "timeout": false,
+  "frames": [
+    {
+      "t": 0,
+      "images": {...},
+      "state": [...],
+      "action": [...],
+      "is_human_intervention": false
+    }
+  ],
+  "metadata": {
+    "source": "demo/eval/rollout/intervention",
+    "max_episode_length": 500,
+    "operator": "xxx"
+  }
+}</pre>
+      <p>建议新增文件：</p>
+      <ul>
+        <li><code>src/openpi/training/recap_episode_io.py</code></li>
+        <li><code>scripts/convert_lerobot_to_recap_episodes.py</code></li>
+      </ul>
+    </div>
+
+    <div class="phase">
+      <div class="phase-title">阶段 1.2：先实现规则版 value proxy</div>
+      <p>在完整 value model 没有完成之前，不要卡住。可以先用成功/失败和剩余时间构造 value proxy，用于打通离线数据标注、写回和 VLA 训练链路：</p>
+      <pre>成功 episode:
+V(t) = - remaining_steps / max_episode_length
+
+失败 episode:
+V(t) = -1.0 或者根据失败发生时刻设置更低 value</pre>
+      <p>这样可以先生成 <code>advantage_indicator</code>，跑通 RECAP VLA 训练链路。但这只是工程 proxy，不是论文中的视觉语言 value function：论文的 value function 输入图像、机器人状态和语言指令，输出 201-bin distributional value，并用 cross entropy 训练。</p>
+      <p>建议新增文件：</p>
+      <ul>
+        <li><code>src/openpi/training/recap_value_proxy.py</code></li>
+        <li><code>scripts/label_recap_advantage.py</code></li>
+      </ul>
+    </div>
+
+    <div class="phase">
+      <div class="phase-title">阶段 1.3：修正 human intervention 的 positive 标签逻辑</div>
+      <p>论文中 human correction 动作应强制视为 positive。当前 <code>assign_advantage_labels()</code> 没有处理这一点，建议修改为：</p>
+      <pre>labels = episode_advantages >= threshold
+labels = labels OR episode.is_human_intervention</pre>
+      <p>同时建议保留 <code>label_source</code> 字段，用于区分 value positive、human positive、manual positive。</p>
+      <p>建议同时修正 quantile 参数命名，避免把“positive 比例”和“分位阈值”混用：</p>
+      <pre># 如果用户配置的是目标 positive_fraction，例如 0.4
+threshold_quantile = 1.0 - positive_fraction
+threshold = np.quantile(task_advantages, threshold_quantile)
+labels = advantages >= threshold</pre>
+    </div>
+
+    <div class="phase">
+      <div class="phase-title">阶段 1.4：写回 LeRobot dataset</div>
+      <p>需要把以下字段写回训练数据：</p>
+      <ul>
+        <li><code>advantage_indicator</code></li>
+        <li><code>use_advantage</code></li>
+        <li><code>is_human_intervention</code></li>
+        <li><code>success</code> / <code>episode_return</code> / <code>value_target_bin</code>，用于后续 value model 训练</li>
+      </ul>
+      <p>建议脚本：</p>
+      <pre>PYTHONPATH=src python scripts/label_recap_advantage.py \
+  --input-episodes /path/to/episodes \
+  --output-lerobot /path/to/lerobot_recap \
+  --positive-quantile 0.4</pre>
+    </div>
+
+    <h2>5. 第二阶段：实现真正的 value function</h2>
+
+    <div class="phase">
+      <div class="phase-title">阶段 2.1：实现 ValueModelConfig</div>
+      <p>建议不要只用一个 <code>DistributionalValueHead</code>。应新增完整 value model：</p>
+      <ul>
+        <li>复用 Pi0/PaliGemma 的图像和语言 encoder；</li>
+        <li>去掉 action expert；</li>
+        <li>增加 value head，输出 <code>[B, value_bins]</code>；</li>
+        <li>输入 observation + language prompt；</li>
+        <li>输出 distributional value logits。</li>
+      </ul>
+      <p>建议新增文件：</p>
+      <ul>
+        <li><code>src/openpi/models/recap_value_model.py</code></li>
+        <li><code>src/openpi/models/recap_value_config.py</code></li>
+      </ul>
+    </div>
+
+    <div class="phase">
+      <div class="phase-title">阶段 2.2：实现 value training loop</div>
+      <p>训练目标为 distributional cross entropy：</p>
+      <pre>loss = CE(value_target_bin, value_logits)</pre>
+      <p>建议新增脚本：</p>
+      <pre>PYTHONPATH=src python scripts/train_recap_value.py \
+  --config-name recap_value_pi05 \
+  --dataset /path/to/recap_lerobot \
+  --exp-name value_v1</pre>
+    </div>
+
+    <div class="phase">
+      <div class="phase-title">阶段 2.3：实现 value inference 与 advantage 计算</div>
+      <p>需要对每个 timestep 计算：</p>
+      <pre>A(o_t, a_t) = sum(r_t ... r_{t+n-1}) + V(o_{t+n}) - V(o_t)</pre>
+      <p>然后根据任务内 quantile 或固定阈值生成 <code>advantage_indicator</code>。</p>
+      <p>注意：论文中是任务相关阈值，建议先按 <code>task_id</code> 或 prompt 分组计算 quantile，不要全数据混在一起。</p>
+    </div>
+
+    <h2>6. 第三阶段：补齐迭代训练 orchestration</h2>
+
+    <p>当前 <code>scripts/recap_train.py</code> 只是日志骨架。建议改成真正执行以下流程：</p>
+
+    <pre>for iteration in range(K):
+    1. load demos + previous rollouts
+    2. train value model from pretrained value checkpoint
+    3. run value inference and compute advantage
+    4. write advantage_indicator back to dataset
+    5. fine-tune VLA from base checkpoint, not last checkpoint
+    6. evaluate policy
+    7. collect new rollout data
+    8. save iteration report</pre>
+
+    <p>建议输出每轮报告：</p>
+    <ul>
+      <li>episode 数量；</li>
+      <li>成功率；</li>
+      <li>平均完成时间；</li>
+      <li>advantage positive 占比；</li>
+      <li>human intervention 占比；</li>
+      <li>value loss；</li>
+      <li>VLA loss；</li>
+      <li>eval success rate；</li>
+      <li>下一轮是否继续。</li>
+    </ul>
+
+    <h2>7. 第四阶段：接仿真或真机 rollout</h2>
+
+    <h3>7.1 先接仿真环境</h3>
+    <p>建议先接 MuJoCo 或 Isaac Sim，不要直接上真机闭环。最小接口如下：</p>
+    <pre>class ReCAPEnv:
+    def reset(self) -> dict:
+        ...
+
+    def step(self, action) -> tuple[dict, float, bool, dict]:
+        ...
+
+    def success(self) -> bool:
+        ...
+
+    def close(self):
+        ...</pre>
+
+    <h3>7.2 再接人类干预</h3>
+    <p>建议定义统一 intervention callback：</p>
+    <pre>class InterventionCallback:
+    def get_action(self, obs) -> np.ndarray | None:
+        # None: 不接管
+        # action: 人类接管动作
+        ...</pre>
+
+    <p>干预时 episode recorder 需要记录：</p>
+    <ul>
+      <li>policy action；</li>
+      <li>human action；</li>
+      <li>最终执行 action；</li>
+      <li>is_human_intervention；</li>
+      <li>干预开始/结束时间；</li>
+      <li>干预原因：危险、失败趋势、卡住、误抓、插入失败等。</li>
+    </ul>
+
+    <h3>7.3 真机安全要求</h3>
+    <div class="danger">
+      <strong>真机 HITL-RL 必须加安全层：</strong>速度限制、关节限位、末端工作空间限制、碰撞检测、力/力矩阈值、急停、超时停止、动作平滑、gripper 保护逻辑。不要让 VLA 直接裸控机器人。
+    </div>
+
+    <h2>8. 针对你的试管架任务的落地方案</h2>
+
+    <p>你的任务是试管架抓取并放入检测设备卡槽，容差可能只有 2–4 mm。这个任务不适合纯 VLA 端到端硬上。建议把 RECAP 用在中上层动作策略改进，而插入阶段仍保留传统视觉伺服和力控保护。</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>阶段</th>
+          <th>建议控制方式</th>
+          <th>RECAP 的作用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>接近试管架</td>
+          <td>VLA / ACT / 视觉粗定位</td>
+          <td>学习不同初始位置下的接近策略</td>
+        </tr>
+        <tr>
+          <td>抓取试管架</td>
+          <td>VLA + gripper 规则保护</td>
+          <td>减少抓偏、抓空、从上方误抓</td>
+        </tr>
+        <tr>
+          <td>移动到设备附近</td>
+          <td>VLA / FSM / IK</td>
+          <td>提高路径流畅性和稳定性</td>
+        </tr>
+        <tr>
+          <td>对准卡槽</td>
+          <td>传统视觉伺服 / 6D pose / wrist camera</td>
+          <td>可学习粗对准策略，但不建议完全替代伺服</td>
+        </tr>
+        <tr>
+          <td>插入</td>
+          <td>视觉伺服 + 力控 + impedance / admittance</td>
+          <td>RECAP 可用于学习失败恢复策略，但底层必须有安全控制</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>9. 推荐开发顺序</h2>
+
+    <ol>
+      <li><strong>先修正 <code>assign_advantage_labels()</code>：</strong>明确 quantile/positive_fraction 语义，并让 human intervention 强制 positive。</li>
+      <li><strong>实现离线 episode 格式：</strong>把 demo/eval 数据统一成 RECAP episode。</li>
+      <li><strong>实现规则版 value proxy：</strong>先不训练 value model，基于成功/失败和剩余时间生成 advantage。</li>
+      <li><strong>写回 LeRobot dataset：</strong>补齐 <code>advantage_indicator</code>、<code>use_advantage</code>、<code>is_human_intervention</code>。</li>
+      <li><strong>跑 pi05_recap 训练：</strong>对比普通 pi05 SFT。</li>
+      <li><strong>建立评估报告：</strong>success rate、完成时间、抓取偏差、插入偏差、失败类型。</li>
+      <li><strong>再实现真正 value model：</strong>用完整视觉语言 value function 替代规则 proxy。</li>
+      <li><strong>最后接仿真/真机 rollout：</strong>形成闭环。</li>
+    </ol>
+
+    <h2>10. 文件级修改清单</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>文件</th>
+          <th>建议修改</th>
+          <th>优先级</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>src/openpi/training/recap_collector.py</code></td>
+          <td>修改 <code>assign_advantage_labels()</code>，修正 quantile/positive_fraction 语义，human intervention 强制 positive；增加 label_source。</td>
+          <td>最高</td>
+        </tr>
+        <tr>
+          <td><code>src/openpi/training/recap_episode_io.py</code></td>
+          <td>新增，统一 episode 读写格式。</td>
+          <td>最高</td>
+        </tr>
+        <tr>
+          <td><code>scripts/label_recap_advantage.py</code></td>
+          <td>新增，根据 value proxy 或 value model 生成 advantage label 并写回数据集。</td>
+          <td>最高</td>
+        </tr>
+        <tr>
+          <td><code>src/openpi/training/recap_value_proxy.py</code></td>
+          <td>新增，先实现基于成功/失败和剩余时间的 value proxy。</td>
+          <td>高</td>
+        </tr>
+        <tr>
+          <td><code>src/openpi/models/recap_value_model.py</code></td>
+          <td>新增，完整视觉语言 value model。</td>
+          <td>高</td>
+        </tr>
+        <tr>
+          <td><code>scripts/train_recap_value.py</code></td>
+          <td>新增，训练 distributional value function。</td>
+          <td>高</td>
+        </tr>
+        <tr>
+          <td><code>scripts/infer_recap_value.py</code></td>
+          <td>新增，批量推理 value 并计算 advantage。</td>
+          <td>高</td>
+        </tr>
+        <tr>
+          <td><code>scripts/recap_train.py</code></td>
+          <td>从日志骨架改为真实 orchestration。</td>
+          <td>中高</td>
+        </tr>
+        <tr>
+          <td><code>src/openpi/rollout/recap_env.py</code></td>
+          <td>新增，定义仿真/真机环境 adapter 接口。</td>
+          <td>中</td>
+        </tr>
+        <tr>
+          <td><code>src/openpi/rollout/intervention.py</code></td>
+          <td>新增，人类干预 callback。</td>
+          <td>中</td>
+        </tr>
+        <tr>
+          <td><code>src/openpi/rollout/safety.py</code></td>
+          <td>新增，动作限幅、力阈值、急停、安全状态机。</td>
+          <td>中</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>11. 最小可运行版本验收标准</h2>
+
+    <div class="success">
+      <strong>V1 离线 RECAP 验收标准：</strong>
+      <ol>
+        <li>能够从已有成功/失败 episode 生成 reward、return、advantage。</li>
+        <li>能够写回 <code>advantage_indicator</code> 到训练数据。</li>
+        <li><code>pi05_recap</code> 可以正常训练，不报 shape / JIT / dataloader 错误。</li>
+        <li>同一批数据下，与普通 π0.5 SFT 对比，至少在 eval 成功率、平均完成时间、失败类型数量中的一个指标上有改善。</li>
+        <li>输出 HTML 评估报告，包含每轮训练、数据标签分布、成功率和失败案例。</li>
+      </ol>
+    </div>
+
+    <div class="success">
+      <strong>V2 仿真 RECAP 验收标准：</strong>
+      <ol>
+        <li>仿真环境可以自动 rollout。</li>
+        <li>episode recorder 可以保存完整 observation/action/success/failure。</li>
+        <li>每轮自动完成：collect → label → train → eval。</li>
+        <li>至少 2 轮迭代后，仿真 success rate 或 throughput 有提升。</li>
+      </ol>
+    </div>
+
+    <div class="success">
+      <strong>V3 真机 HITL-RECAP 验收标准：</strong>
+      <ol>
+        <li>支持人类接管，并正确记录 intervention action。</li>
+        <li>human intervention 样本被强制标为 positive。</li>
+        <li>真机 rollout 有安全限幅和急停。</li>
+        <li>每轮训练后，任务成功率提升或失败模式减少。</li>
+      </ol>
+    </div>
+
+    <h2>12. 结论</h2>
+
+    <p>当前仓库不是完整论文复现，但方向是对的。它已经把最核心的“advantage conditioning 接入 VLA”打通了第一步。需要优先修正的是 advantage 标签生成语义，尤其是 quantile 阈值和 positive 样本比例不要混用。后续不要优先追求更大的 π0.6 模型，而应该优先补齐：</p>
+
+    <ol>
+      <li>离线 episode 标准化；</li>
+      <li>value / advantage 计算；</li>
+      <li>advantage label 写回；</li>
+      <li>value model 训练；</li>
+      <li>迭代训练 orchestration；</li>
+      <li>仿真/真机 rollout；</li>
+      <li>human intervention 和安全闭环。</li>
+    </ol>
+
+    <p><strong>最务实的下一步：</strong>先实现 V1 离线 RECAP。只要能证明同一批数据下 <code>pi05_recap</code> 比普通 <code>pi05</code> SFT 更稳、更快、更少失败，这个仓库就有继续投入的价值。</p>
+
+    <p class="small">备注：本文档基于当前仓库代码阅读与 π<sup>*</sup><sub>0.6</sub> / RECAP 论文方法对比整理，适合作为后续代码开发 checklist 使用。</p>
+  </div>
+</body>
+</html>

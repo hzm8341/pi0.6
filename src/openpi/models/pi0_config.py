@@ -56,7 +56,7 @@ class ReCAPConfig:
     enabled: bool = False
     alpha: float = 1.0
     advantage_dropout_prob: float = 0.1
-    positive_quantile: float = 0.4
+    positive_fraction: float = 0.4
     value_bins: int = 201
     value_min: float = -1.0
     value_max: float = 0.0

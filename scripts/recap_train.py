@@ -20,7 +20,7 @@ def run_recap(config: ReCAPTrainConfig) -> None:
         iter_dir = config.output_dir / f"iter_{iteration:03d}"
         logger.info("[%03d] load demos and collected episodes", iteration)
         logger.info("[%03d] train value function for %d steps", iteration, config.iteration.value_train_steps)
-        logger.info("[%03d] assign advantage labels at quantile %.2f", iteration, config.iteration.positive_quantile)
+        logger.info("[%03d] assign advantage labels with positive fraction %.2f", iteration, config.iteration.positive_fraction)
         logger.info("[%03d] fine-tune VLA from base checkpoint for %d steps", iteration, config.iteration.vla_train_steps)
         logger.info("[%03d] collect %d rollout episodes into %s", iteration, config.iteration.collect_episodes, iter_dir)
 

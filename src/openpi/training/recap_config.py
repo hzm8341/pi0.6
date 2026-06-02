@@ -9,7 +9,7 @@ class ReCAPIterationConfig:
     collect_episodes: int = 100
     value_train_steps: int = 10_000
     vla_train_steps: int = 30_000
-    positive_quantile: float = 0.4
+    positive_fraction: float = 0.4
 
 
 @dataclasses.dataclass(frozen=True)

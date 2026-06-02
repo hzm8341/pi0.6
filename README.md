@@ -19,6 +19,7 @@ This is an experiment: $\pi_0$ was developed for our own robots, which differ fr
 - [Sept 2025] We released pi05, an upgraded version of pi0 with better open-world generalization.
 - [Sept 2025]: We have added an [improved idle filter](examples/droid/README_train.md#data-filtering) for DROID training.
 - [Jun 2025]: We have added [instructions](examples/droid/README_train.md) for using `openpi` to train VLAs on the full [DROID dataset](https://droid-dataset.github.io/). This is an approximate open-source implementation of the training pipeline used to train pi0-FAST-DROID.
+- This fork adds an experimental RECAP implementation path for $\pi_{0.5}$ / $\pi_{0.6}$ advantage-conditioned training (see [RECAP advantage-conditioned training](#recap-advantage-conditioned-training) below).
 - This fork adds π₀.₅ fine-tuning presets and scripts for the **Unitree G1** LeRobot dataset *g1-pick-apple* (see [G1 humanoid (pick-apple) fine-tuning](#g1-humanoid-pick-apple-fine-tuning) below).
 
 
@@ -89,6 +90,38 @@ Override the preset with `CONFIG=pi05_g1_pick_apple` or `CONFIG=pi05_g1_pick_app
 OPENPI_DOCKER_IMAGE=your:image bash run_train_openpi_image.sh my_experiment_name
 ```
 
+
+### RECAP advantage-conditioned training
+
+This fork includes an experimental RECAP implementation path for advantage-conditioned $\pi_{0.5}$ / $\pi_{0.6}$ training. The implementation adds RECAP observation fields, advantage prompt tokenization, prefix-token injection in `Pi0`, a RECAP loss route in `scripts/train.py`, value/collector utilities, and an iteration CLI skeleton.
+
+Available RECAP configs:
+
+| Config | Use case |
+| ------ | -------- |
+| `debug_pi05_recap` | Minimal dummy-model smoke config |
+| `pi05_recap` | Generic $\pi_{0.5}$ RECAP fine-tuning config |
+| `pi05_aloha_recap` | ALOHA-oriented $\pi_{0.5}$ RECAP config |
+
+Useful entry points:
+
+```bash
+# Compute normalization stats for a RECAP dataset.
+uv run scripts/compute_norm_stats.py --config-name pi05_recap
+
+# Run RECAP-enabled VLA training.
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py pi05_recap \
+  --exp-name=my_recap_experiment \
+  --overwrite
+
+# Run the offline iteration-loop scaffold.
+PYTHONPATH=src python scripts/recap_train.py \
+  --task-name my_task \
+  --demo-dataset /path/to/demo_episodes \
+  --num-iterations 3
+```
+
+The detailed implementation plan is tracked in [`docs/superpowers/plans/2026-06-02-recap.md`](docs/superpowers/plans/2026-06-02-recap.md). Current verification covers syntax checks plus lightweight value/collector/CLI checks; full `uv run pytest` requires a healthy project environment and complete dependency download.
 
 
 ## Model Checkpoints

@@ -13,6 +13,108 @@ For all models, we provide _base model_ checkpoints, pre-trained on 10k+ hours o
 
 This is an experiment: $\pi_0$ was developed for our own robots, which differ from the widely used platforms such as [ALOHA](https://tonyzhaozh.github.io/aloha/) and [DROID](https://droid-dataset.github.io/), and though we are optimistic that researchers and practitioners will be able to run creative new experiments adapting $\pi_0$ to their own platforms, we do not expect every such attempt to be successful. All this is to say: $\pi_0$ may or may not work for you, but you are welcome to try it and see!
 
+## 本 fork 已实现的核心功能
+
+这个 fork 目前优先实现了两条研究线：一条是 $\pi_{0.5}$ / $\pi_{0.6}$ 兼容的 MEM/G1 微调工作流，另一条是面向 $\pi_{0.6}$ RECAP 思路的优势条件化训练基础设施。已落地的 RECAP 代码是可继续扩展的实验框架，不是完整论文复现。
+
+### 已实现
+
+| 功能 | 状态 | 主要代码位置 |
+| ---- | ---- | ------------ |
+| RECAP 配置项 | 已实现 | `src/openpi/models/pi0_config.py:ReCAPConfig` |
+| 观测数据中携带优势标签、人类干预标签 | 已实现 | `src/openpi/models/model.py:Observation` |
+| advantage prompt 预 tokenization | 已实现 | `src/openpi/transforms.py:TokenizeReCAPAdvantage` |
+| 在 `Pi0.embed_prefix()` 注入 `Advantage: positive/negative` tokens | 已实现 | `src/openpi/models/pi0.py` |
+| RECAP 双路 loss 路由 | 已实现 | `src/openpi/models/pi0.py:compute_recap_loss()`、`scripts/train.py` |
+| RECAP 训练配置注册 | 已实现 | `src/openpi/training/config.py` 中的 `debug_pi05_recap`、`pi05_recap`、`pi05_aloha_recap` |
+| 回报、return bin、advantage 计算工具 | 已实现 | `src/openpi/models/value_function.py` |
+| episode advantage 标注工具 | 已实现 | `src/openpi/training/recap_collector.py` |
+| RECAP 迭代训练 CLI 骨架 | 已实现 | `scripts/recap_train.py` |
+| 实施计划和阶段拆解 | 已实现 | `docs/superpowers/plans/2026-06-02-recap.md` |
+
+### 对比 $\pi_{0.6}$ / RECAP 论文：已完成与未完成
+
+| 论文模块 | 当前状态 | 说明 |
+| -------- | -------- | ---- |
+| 优势条件化策略输入 | 已完成基础实现 | 训练样本可以携带 `advantage_indicator`，模型 prefix 中会注入 positive/negative advantage tokens。 |
+| RECAP 策略 loss | 已完成基础实现 | `compute_recap_loss()` 同时计算无条件 loss 和有条件 loss，并支持 advantage dropout。 |
+| 使用 `use_advantage: bool[batch]` mask 处理条件 dropout | 已完成 | 避免在 JIT 内动态生成 `None`。 |
+| 分布式价值函数的奖励/return/bin 工具 | 部分完成 | 已有工具函数和轻量 value head scaffold；完整视觉语言 value backbone 还没有接入。 |
+| 根据 value function 计算真实优势并生成训练标签 | 部分完成 | 已有 `assign_advantage_labels()`；缺少完整 value model inference + dataset 写回流程。 |
+| 人类在环数据采集 | 部分完成 | 数据结构保留 `is_human_intervention`，collector 有 episode/label 工具；还没有接入真实机器人环境、SpaceMouse/WebSocket 等干预回调。 |
+| Algorithm 1 迭代循环：collect -> train value -> label advantage -> finetune VLA | 骨架完成 | `scripts/recap_train.py` 记录阶段顺序；还没有自动调用完整 value training、VLA training 和机器人 rollout。 |
+| 每轮从预训练 checkpoint 重新微调以降低策略漂移 | 设计已记录 | README/计划中记录了训练方式；脚本还需要实际 checkpoint orchestration。 |
+| 在线/真实机器人 HITL RL 闭环 | 未完成 | 需要实现 env adapter、intervention callback、episode 存储格式、成功/失败标注入口和安全停机逻辑。 |
+
+### 如何训练 RECAP VLA
+
+当前可训练的是 RECAP-enabled VLA 监督/离线微调路径。你的 LeRobot 或自定义数据需要在 transform 之后包含这些字段：
+
+- `advantage_indicator`: `bool`，表示当前样本动作优势是否为正。
+- `use_advantage`: `bool`，表示本样本是否启用 advantage condition。
+- `is_human_intervention`: `bool`，表示样本是否来自人类干预动作。
+- `tokenized_advantage_positive`、`tokenized_advantage_negative`、`tokenized_advantage_mask`: 通常由 `TokenizeReCAPAdvantage` 自动生成。
+
+训练命令：
+
+```bash
+# 1. 计算归一化统计量。
+uv run scripts/compute_norm_stats.py --config-name pi05_recap
+
+# 2. 运行 RECAP-enabled VLA 训练。
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py pi05_recap \
+  --exp-name=my_recap_experiment \
+  --overwrite
+
+# ALOHA 数据可使用：
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py pi05_aloha_recap \
+  --exp-name=my_aloha_recap_experiment \
+  --overwrite
+
+# 3. 调试配置，用 dummy model 做最小 smoke run。
+uv run scripts/train.py debug_pi05_recap \
+  --exp-name=recap_debug \
+  --num-train-steps=1 \
+  --batch-size=2 \
+  --overwrite \
+  --wandb-enabled=False
+```
+
+离线迭代训练骨架：
+
+```bash
+PYTHONPATH=src python scripts/recap_train.py \
+  --task-name my_task \
+  --demo-dataset /path/to/demo_episodes \
+  --num-iterations 3
+```
+
+这个 CLI 目前用于组织 RECAP 迭代阶段，还不会自动完成真实 rollout、value model 训练和 VLA 训练调用。
+
+### $\pi_{0.6}$ 的人类在环强化学习部分如何训练
+
+RECAP / $\pi_{0.6}$ 中的人类在环强化学习可以理解为离线迭代的人类辅助 RL 流程：策略先自主 rollout；人在失败、危险或低质量动作时接管；系统记录接管前后的 episode、成功/失败和人类动作；随后训练 value function，计算每个状态动作的优势，并把优势正负作为条件 token 继续微调 VLA。
+
+当前代码已经提供这些入口：
+
+- `src/openpi/training/recap_collector.py`: episode 数据结构、优势标签分配。
+- `src/openpi/models/value_function.py`: reward、return、advantage、bin 工具。
+- `src/openpi/models/model.py`: `is_human_intervention`、`advantage_indicator` 字段。
+- `src/openpi/models/pi0.py`: advantage-conditioned 策略训练。
+- `scripts/recap_train.py`: 迭代训练流程骨架。
+
+要训练完整 HITL RL，还需要补齐以下项目特定代码：
+
+1. 机器人或仿真环境 adapter：提供 `reset()`、`step(action)`、`success`/`done` 标记。
+2. 人类干预 callback：例如 SpaceMouse、键盘、WebSocket 或遥操作手柄；无干预时返回 `None`，有干预时返回人类动作。
+3. episode 存储格式：建议用结构化 `npz`/`jsonl`/`parquet`，不要用不可信 pickle。
+4. value function 训练循环：把已采集 episode 转成 value targets，训练完整视觉语言 value model。
+5. advantage 写回数据集：用训练好的 value function 计算优势，并生成 `advantage_indicator`。
+6. VLA 微调：使用 `pi05_recap` 或平台专用 RECAP config 重新从 base checkpoint fine-tune。
+7. 重复迭代：collect -> train value -> label advantage -> finetune VLA。
+
+换句话说：当前仓库已经实现了 RECAP VLA 训练所需的模型输入、loss、配置和离线工具；真实“人在环强化学习闭环”还需要接入具体机器人平台和 value model 训练 orchestration。
+
 ## Updates
 
 - [Sept 2025] We released PyTorch support in openpi.
@@ -93,35 +195,7 @@ OPENPI_DOCKER_IMAGE=your:image bash run_train_openpi_image.sh my_experiment_name
 
 ### RECAP advantage-conditioned training
 
-This fork includes an experimental RECAP implementation path for advantage-conditioned $\pi_{0.5}$ / $\pi_{0.6}$ training. The implementation adds RECAP observation fields, advantage prompt tokenization, prefix-token injection in `Pi0`, a RECAP loss route in `scripts/train.py`, value/collector utilities, and an iteration CLI skeleton.
-
-Available RECAP configs:
-
-| Config | Use case |
-| ------ | -------- |
-| `debug_pi05_recap` | Minimal dummy-model smoke config |
-| `pi05_recap` | Generic $\pi_{0.5}$ RECAP fine-tuning config |
-| `pi05_aloha_recap` | ALOHA-oriented $\pi_{0.5}$ RECAP config |
-
-Useful entry points:
-
-```bash
-# Compute normalization stats for a RECAP dataset.
-uv run scripts/compute_norm_stats.py --config-name pi05_recap
-
-# Run RECAP-enabled VLA training.
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py pi05_recap \
-  --exp-name=my_recap_experiment \
-  --overwrite
-
-# Run the offline iteration-loop scaffold.
-PYTHONPATH=src python scripts/recap_train.py \
-  --task-name my_task \
-  --demo-dataset /path/to/demo_episodes \
-  --num-iterations 3
-```
-
-The detailed implementation plan is tracked in [`docs/superpowers/plans/2026-06-02-recap.md`](docs/superpowers/plans/2026-06-02-recap.md). Current verification covers syntax checks plus lightweight value/collector/CLI checks; full `uv run pytest` requires a healthy project environment and complete dependency download.
+RECAP functionality is summarized near the top of this README in [本 fork 已实现的核心功能](#本-fork-已实现的核心功能), including implemented modules, paper comparison, training commands, human-in-the-loop RL status, and code locations.
 
 
 ## Model Checkpoints

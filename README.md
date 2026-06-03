@@ -34,6 +34,8 @@ English: This fork currently focuses on two research tracks: a MEM/G1 fine-tunin
 | 离线 RECAP episode JSON 读写 / Offline RECAP episode JSON IO | 已实现 / Implemented | `src/openpi/training/recap_episode_io.py` |
 | 离线 reward/return/value proxy/advantage 生成 / Offline reward, return, value-proxy, and advantage generation | 已实现基础版 / Basic implementation complete | `src/openpi/training/recap_value_proxy.py`、`src/openpi/training/recap_offline.py` |
 | RECAP 标签侧车文件导出 / RECAP label sidecar export | 已实现 / Implemented | `scripts/label_recap_advantage.py` 输出 `recap_labels.jsonl` 和 `lerobot_fields.npz` |
+| RECAP 侧车字段接入 dataloader / RECAP sidecar field merge in dataloader | 已实现 / Implemented | `src/openpi/training/data_loader.py:ReCAPFieldsDataset`、`DataConfig.recap_fields_path` |
+| RECAP split/trim/eval 数据准备工具 / RECAP split, trim, and eval preparation tools | 已实现 / Implemented | `scripts/create_recap_split_manifest.py`、`scripts/trim_recap_episodes.py`、`scripts/eval_recap_episodes.py` |
 | RECAP 迭代训练 CLI 骨架 / RECAP iterative-training CLI skeleton | 已实现 / Implemented | `scripts/recap_train.py` |
 | 未完成项跟踪 / Remaining work tracking | 已实现 / Implemented | `TODO_RECAP.md` |
 | 实施计划和阶段拆解 / Implementation plan and phase breakdown | 已实现 / Implemented | `docs/superpowers/plans/2026-06-02-recap.md` |
@@ -46,7 +48,7 @@ English: This fork currently focuses on two research tracks: a MEM/G1 fine-tunin
 | RECAP 策略 loss / RECAP policy loss | 已完成基础实现 / Basic implementation complete | `compute_recap_loss()` 同时计算无条件 loss 和有条件 loss，并支持 advantage dropout。 / `compute_recap_loss()` computes both unconditional and conditioned losses and supports advantage dropout. |
 | 使用 `use_advantage: bool[batch]` mask 处理条件 dropout / Conditional dropout via `use_advantage: bool[batch]` mask | 已完成 / Implemented | 避免在 JIT 内动态生成 `None`。 / Avoids dynamically generating `None` inside JIT. |
 | 分布式价值函数的奖励/return/bin 工具 / Reward, return, and bin utilities for distributional value learning | 部分完成 / Partially complete | 已有工具函数、轻量 value head scaffold、离线 progress value proxy；完整视觉语言 value backbone 还没有接入。 / Utility functions, a lightweight value-head scaffold, and an offline progress value proxy exist; the full vision-language value backbone is not wired yet. |
-| 根据 value/value proxy 计算优势并生成训练标签 / Compute advantages from value/value proxy and generate labels | 基础离线版完成 / Basic offline version complete | `scripts/label_recap_advantage.py` 可从 episode JSON 生成 `advantage_indicator`、`use_advantage`、`is_human_intervention` 侧车字段；真实 LeRobot 原地写回仍在 TODO。 / `scripts/label_recap_advantage.py` can generate sidecar fields from episode JSON; true in-place LeRobot write-back remains TODO. |
+| 根据 value/value proxy 计算优势并生成训练标签 / Compute advantages from value/value proxy and generate labels | 基础离线版完成 / Basic offline version complete | `scripts/label_recap_advantage.py` 可从 episode JSON 生成侧车字段，`recap_fields_path` 可在 dataloader 中按 frame 顺序合并；真实 LeRobot 原地写回仍在 TODO。 / `scripts/label_recap_advantage.py` can generate sidecar fields, and `recap_fields_path` can merge them in the dataloader by frame order; true in-place LeRobot write-back remains TODO. |
 | 人类在环数据采集 / Human-in-the-loop data collection | 部分完成 / Partially complete | 数据结构保留 `is_human_intervention`，collector 有 episode/label 工具；还没有接入真实机器人环境、SpaceMouse/WebSocket 等干预回调。 / Data structures preserve `is_human_intervention`, and collector episode/label utilities exist; real robot environments and SpaceMouse/WebSocket intervention callbacks are not wired yet. |
 | Algorithm 1 迭代循环：collect -> train value -> label advantage -> finetune VLA / Algorithm 1 loop: collect -> train value -> label advantage -> finetune VLA | 骨架完成 / Skeleton complete | `scripts/recap_train.py` 记录阶段顺序；还没有自动调用完整 value training、VLA training 和机器人 rollout。 / `scripts/recap_train.py` records the stage order; it does not yet automatically launch full value training, VLA training, or robot rollouts. |
 | 每轮从预训练 checkpoint 重新微调以降低策略漂移 / Restart each iteration from the pretrained checkpoint to reduce policy drift | 设计已记录 / Design recorded | README/计划中记录了训练方式；脚本还需要实际 checkpoint orchestration。 / The training design is documented in README/plan; actual checkpoint orchestration still needs implementation. |
@@ -138,10 +140,54 @@ PYTHONPATH=src python scripts/label_recap_advantage.py \
   --n-step-lookahead 50
 ```
 
+训练前数据准备 / Pre-training data preparation:
+
+```bash
+# 1. 生成 train/eval manifest，避免 episode 泄漏。
+# Create a train/eval manifest to avoid episode leakage.
+PYTHONPATH=src python scripts/create_recap_split_manifest.py \
+  --input-episodes /path/to/recap_episode_json_or_dir \
+  --output outputs/recap_labels/split_manifest.json \
+  --eval-fraction 0.15 \
+  --seed 0
+
+# 2. 裁剪尾部静止 episode。 / Trim static tail frames.
+PYTHONPATH=src python scripts/trim_recap_episodes.py \
+  --input-episodes /path/to/recap_episode_json_or_dir \
+  --output-episodes outputs/recap_trimmed_episodes \
+  --action-norm-threshold 0.05 \
+  --min-frames 10
+
+# 3. 输出离线数据摘要。 / Write an offline data summary.
+PYTHONPATH=src python scripts/eval_recap_episodes.py \
+  --input-episodes outputs/recap_trimmed_episodes \
+  --output outputs/recap_labels/offline_eval_summary.json \
+  --static-action-threshold 0.05
+```
+
 输出 / Outputs:
 
 - `outputs/recap_labels/recap_labels.jsonl`: 每个 timestep 的 `reward`、`return`、`value`、`advantage`、`advantage_indicator`、`label_source`。
 - `outputs/recap_labels/lerobot_fields.npz`: 扁平数组 `advantage_indicator`、`use_advantage`、`is_human_intervention`，用于后续合并到 LeRobot 数据表。
+
+GPU 服务器训练时，需要把 `lerobot_fields.npz` 作为 `DataConfig.recap_fields_path` 传入训练配置；该文件长度必须和 LeRobot flattened frame dataset 长度一致。若使用 tyro CLI，可尝试：
+
+```bash
+uv run scripts/train.py pi05_recap \
+  --data.recap-fields-path outputs/recap_labels/lerobot_fields.npz \
+  --exp-name=my_recap_experiment \
+  --overwrite
+```
+
+也可以直接使用 GPU 服务器验证脚本。详细步骤见 `docs/recap_gpu_training.md`：
+
+```bash
+EPISODES_DIR=/path/to/recap_episode_json_or_dir \
+CONFIG_NAME=pi05_recap \
+EXP_NAME=test_tube_recap_v1 \
+WANDB_ENABLED=False \
+bash scripts/run_recap_gpu_validation.sh
+```
 
 中文：这里的 value 是 progress-based proxy，不是论文中的完整视觉语言 distributional value function。真实 LeRobot 原地写回、轻量可训练 value model、完整 value model、真机 rollout 和 HITL callback 仍记录在 `TODO_RECAP.md`。
 
@@ -156,8 +202,8 @@ English: The following RECAP items are not fully implemented in this repository 
 #### Offline RECAP
 
 - [ ] Implement true LeRobot in-place dataset write-back.
-  - Current status: `scripts/label_recap_advantage.py` writes sidecar files: `recap_labels.jsonl` and `lerobot_fields.npz`.
-  - Needed: integrate these fields into the actual LeRobot dataset frame table or metadata format used by the target dataset.
+  - Current status: `scripts/label_recap_advantage.py` writes sidecar files: `recap_labels.jsonl` and `lerobot_fields.npz`; `DataConfig.recap_fields_path` can merge `lerobot_fields.npz` into training samples at dataloader time.
+  - Needed: optional permanent integration into the actual LeRobot dataset frame table or metadata format used by the target dataset.
 - [ ] Train a learned lightweight value model.
   - Current status: offline labeling uses a deterministic progress-based value proxy.
   - Needed: add a small trainable value model that consumes state and/or image embeddings, trains with return targets, saves checkpoints, and supports batched inference.

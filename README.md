@@ -216,6 +216,8 @@ WANDB_ENABLED=False \
 bash scripts/run_recap_gpu_validation.sh
 ```
 
+中文服务器逐步操作手册见 `docs/recap_server_operation_zh.md`，适合从“只有 LeRobot 数据集”开始配置和训练。
+
 中文：这里的 value 是 progress-based proxy，不是论文中的完整视觉语言 distributional value function。真实 LeRobot 原地写回、轻量可训练 value model、完整 value model、真机 rollout 和 HITL callback 仍记录在 `TODO_RECAP.md`。
 
 English: The value here is a progress-based proxy, not the full vision-language distributional value function from the paper. True in-place LeRobot write-back, a trainable lightweight value model, the full value model, real rollouts, and HITL callbacks remain tracked in `TODO_RECAP.md`.

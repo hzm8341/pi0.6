@@ -62,6 +62,33 @@ class TransformedDataset(Dataset[T_co]):
         return len(self._dataset)
 
 
+class ReCAPFieldsDataset(Dataset):
+    """Attach RECAP sidecar fields to a frame-indexed dataset."""
+
+    REQUIRED_FIELDS = ("advantage_indicator", "use_advantage", "is_human_intervention")
+
+    def __init__(self, dataset: Dataset, fields_path: str | os.PathLike[str]):
+        self._dataset = dataset
+        loaded = np.load(fields_path)
+        self._fields = {field: np.asarray(loaded[field], dtype=bool) for field in self.REQUIRED_FIELDS}
+        for field, values in self._fields.items():
+            if len(values) != len(dataset):
+                raise ValueError(
+                    f"RECAP field {field!r} must have the same length as the dataset, "
+                    f"got {len(values)} and {len(dataset)}."
+                )
+
+    def __getitem__(self, index: SupportsIndex) -> dict:
+        idx = index.__index__()
+        item = dict(self._dataset[index])
+        for field, values in self._fields.items():
+            item[field] = np.asarray(values[idx], dtype=np.bool_)
+        return item
+
+    def __len__(self) -> int:
+        return len(self._dataset)
+
+
 class IterableTransformedDataset(IterableDataset[T_co]):
     def __init__(
         self,
@@ -149,6 +176,9 @@ def create_torch_dataset(
 
     if data_config.prompt_from_task:
         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
+
+    if data_config.recap_fields_path is not None:
+        dataset = ReCAPFieldsDataset(dataset, data_config.recap_fields_path)
 
     return dataset
 
@@ -656,4 +686,3 @@ class MEMLeRobotDataset(Dataset):
         if hasattr(inner, "episode_data_index"):
             return int(inner.episode_data_index["from"][episode_id])
         return 0
-

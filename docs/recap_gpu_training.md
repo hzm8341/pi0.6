@@ -8,7 +8,7 @@ Upload or make available on the GPU server:
 
 - The repository checkout containing this branch.
 - The cleaned LeRobot dataset.
-- RECAP episode JSON files with `success`, `frames`, `observation`, `action`, and optional `is_human_intervention`.
+- RECAP episode JSON files with `success`, `frames`, `observation`, `action`, and optional `is_human_intervention`, or a LeRobot dataset that can be converted first.
 - Enough disk space for `outputs/`, `assets/`, and checkpoints.
 
 Do not start long training before the smoke run passes.
@@ -29,12 +29,25 @@ hf auth login
 
 If you use GCS checkpoints and need authentication, configure that before training as well.
 
-## 3. Run One-Command Validation
+## 3. Convert LeRobot Dataset If Needed
+
+If you only have a local LeRobot dataset, convert it to RECAP episode JSON first:
+
+```bash
+PYTHONPATH=src python scripts/convert_lerobot_to_recap_episodes.py \
+  --lerobot-root /path/to/lerobot_dataset \
+  --output-episodes outputs/recap_episodes \
+  --default-success unknown
+```
+
+Use `--max-episodes 2` for a quick smoke conversion. With `--default-success unknown`, generated episodes are marked with `metadata.success_needs_review=true`; review success/failure labels before serious training. You can also pass `--success-labels /path/to/success_labels.jsonl`, where each row contains `episode_id` or `episode_index` plus `success`.
+
+## 4. Run One-Command Validation
 
 Set `EPISODES_DIR` to a RECAP episode JSON file or directory.
 
 ```bash
-EPISODES_DIR=/path/to/recap_episode_json_or_dir \
+EPISODES_DIR=outputs/recap_episodes \
 CONFIG_NAME=pi05_recap \
 EXP_NAME=test_tube_recap_v1 \
 WANDB_ENABLED=False \
@@ -55,12 +68,12 @@ The script will:
 
 If this fails, fix that error before running a long training job.
 
-## 4. Start Full Training
+## 5. Start Full Training
 
 After the smoke run passes:
 
 ```bash
-EPISODES_DIR=/path/to/recap_episode_json_or_dir \
+EPISODES_DIR=outputs/recap_episodes \
 CONFIG_NAME=pi05_recap \
 EXP_NAME=test_tube_recap_v1 \
 WANDB_ENABLED=True \
@@ -79,7 +92,7 @@ XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py pi05_recap \
 
 The `lerobot_fields.npz` arrays must match the flattened frame order and length of the LeRobot dataset used by the dataloader.
 
-## 5. Common Failures
+## 6. Common Failures
 
 - `RECAP field ... must have the same length as the dataset`: the sidecar arrays do not match the LeRobot flattened frame dataset. Regenerate labels from the same trimmed dataset that training reads, or implement permanent LeRobot write-back for that dataset.
 - `Prompt is required`: the dataset transform did not provide a prompt. Set the right data config or provide prompt fields.
@@ -87,7 +100,7 @@ The `lerobot_fields.npz` arrays must match the flattened frame order and length 
 - Video decode errors: verify the LeRobot videos, timestamps, and `lerobot_video_tolerance_s`.
 - Smoke loss is NaN: inspect action normalization stats, action range, and gripper channel values before continuing.
 
-## 6. Before Robot Testing
+## 7. Before Robot Testing
 
 Do not run the full insertion task immediately after training. First inspect:
 

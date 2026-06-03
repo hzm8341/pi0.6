@@ -34,6 +34,7 @@ English: This fork currently focuses on two research tracks: a MEM/G1 fine-tunin
 | 离线 RECAP episode JSON 读写 / Offline RECAP episode JSON IO | 已实现 / Implemented | `src/openpi/training/recap_episode_io.py` |
 | 离线 reward/return/value proxy/advantage 生成 / Offline reward, return, value-proxy, and advantage generation | 已实现基础版 / Basic implementation complete | `src/openpi/training/recap_value_proxy.py`、`src/openpi/training/recap_offline.py` |
 | RECAP 标签侧车文件导出 / RECAP label sidecar export | 已实现 / Implemented | `scripts/label_recap_advantage.py` 输出 `recap_labels.jsonl` 和 `lerobot_fields.npz` |
+| LeRobot 到 RECAP episode JSON 转换 / LeRobot to RECAP episode JSON conversion | 已实现 / Implemented | `scripts/convert_lerobot_to_recap_episodes.py` |
 | RECAP 侧车字段接入 dataloader / RECAP sidecar field merge in dataloader | 已实现 / Implemented | `src/openpi/training/data_loader.py:ReCAPFieldsDataset`、`DataConfig.recap_fields_path` |
 | RECAP split/trim/eval 数据准备工具 / RECAP split, trim, and eval preparation tools | 已实现 / Implemented | `scripts/create_recap_split_manifest.py`、`scripts/trim_recap_episodes.py`、`scripts/eval_recap_episodes.py` |
 | RECAP 迭代训练 CLI 骨架 / RECAP iterative-training CLI skeleton | 已实现 / Implemented | `scripts/recap_train.py` |
@@ -108,6 +109,32 @@ English: This CLI currently organizes the RECAP iteration stages. It does not ye
 中文：当前已经可以先跑通离线版 RECAP 的前半段：读取人工标注 success/failure 的 episode JSON，生成 reward、return、progress value proxy、n-step advantage，并输出可合并到 LeRobot 数据集的侧车字段。
 
 English: The first half of offline RECAP is available now: load manually labeled success/failure episode JSON, generate rewards, returns, a progress value proxy, n-step advantages, and export sidecar fields that can be merged into a LeRobot dataset.
+
+如果你现在只有 LeRobot 数据集，先把本地 LeRobot 目录转换成 RECAP episode JSON：
+
+```bash
+PYTHONPATH=src python scripts/convert_lerobot_to_recap_episodes.py \
+  --lerobot-root /path/to/lerobot_dataset \
+  --output-episodes outputs/recap_episodes \
+  --default-success unknown
+```
+
+`/path/to/recap_episode_json_or_dir` 指的是上一步生成的 `outputs/recap_episodes`，不是原始 LeRobot 数据集目录。转换脚本会读取 LeRobot 的 `meta/info.json`、`meta/episodes.jsonl`、`meta/tasks.jsonl` 和 episode parquet 文件；视频不会被复制进 JSON，只会在 `metadata.video_paths` 中保存路径引用。若 `--default-success unknown`，脚本会把 `success` 临时写为 `false`，并设置 `metadata.success_needs_review=true`，训练前应人工复核成功/失败标签。
+
+也可以提供 success 标签文件：
+
+```bash
+PYTHONPATH=src python scripts/convert_lerobot_to_recap_episodes.py \
+  --lerobot-root /path/to/lerobot_dataset \
+  --output-episodes outputs/recap_episodes \
+  --success-labels /path/to/success_labels.jsonl
+```
+
+`success_labels` 支持 JSON、JSONL 或 CSV，字段使用 `episode_id` 或 `episode_index` 加 `success`。例如：
+
+```json
+{"episode_index": 0, "success": true}
+```
 
 episode JSON 示例 / Example episode JSON:
 

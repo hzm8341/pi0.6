@@ -83,6 +83,26 @@
 - [ ] 4.2 评估脚本：成功率、平均完成时间、失败类型、标签分布、β 消融（1 / 1.5 / 2 / 3）
 - [ ] 4.3 `scripts/recap_train.py` 串联真实子进程（标注→value→训练→评估→报告）
 
+#### Phase 4 实验设计（2026-11-14）
+
+**仿真器**：原生 LIBERO（MuJoCo + robosuite），与 RLinf 一致；Isaac Sim 5.1 不用于此阶段。客户端用 openpi 自带 `examples/libero`（Docker，Python 3.8），策略服务用本仓库 `scripts/serve_policy.py`。
+
+**硬件约束**：单卡 RTX 5090 32GB → π0.5 全量微调放不下（openpi 标注 >70GB），所有训练用 LoRA（gemma_2b_lora + gemma_300m_lora，openpi 标注 >22.5GB）。这与 RLinf 的全量微调不同，数字只能"同量级对比"。
+
+**任务**：LIBERO-10 Task 0（与 RLinf 页面一致），50 个固定初始状态用于评估。
+
+| 步骤 | 内容 | 产物 |
+|---|---|---|
+| A | 从 `physical-intelligence/libero` 抽取 Task 0 的 K 条示范（K 调到 SFT 成功率约 50%） | 本地 LeRobot 子数据集 |
+| B | `pi05_libero_lora_fewshot`：LoRA SFT | 基线策略 π_SFT |
+| C | 评估 π_SFT（50 次）；同时带记录地采集 N 条 rollout（图像、状态、执行动作、成功与否） | 基线成功率；rollout episode |
+| D | 合并示范 + rollout 成一个 LeRobot 数据集；代理标签 → `value_target` | 数据集 + sidecar |
+| E | `pi05_recap_value_lora`：训练 value → `label_recap_with_value.py` 重新打标签 | 学习版 advantage 标签 |
+| F | `pi05_recap_lora`：在示范（positive）+ rollout（标签）上训练 RECAP 策略（从 pi05_base 开始，与论文"每轮从预训练重训"一致） | π_RECAP |
+| G | 评估 π_RECAP（50 次 × β∈{1, 1.5, 2}），对比 π_SFT；另设"只用成功 rollout 的过滤 BC"作为消融 | 对照表 |
+
+**需新增代码**：`examples/libero/main.py` 的 `--record-dir`（逐 episode 保存）；rollout → LeRobot 转换脚本；三个 LoRA 配置；评估汇总脚本。
+
 ### Phase 5：真机 HITL（P9 后半，特色 F2 F4）
 
 - [ ] 5.1 `rollout/recap_env.py`、`episode_recorder.py`、`intervention.py`、`safety.py`

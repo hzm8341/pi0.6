@@ -54,8 +54,32 @@ class MEMConfig:
 @dataclasses.dataclass(frozen=True)
 class ReCAPConfig:
     enabled: bool = False
+    # Weight of the conditioned term. Only used when loss_mode == "dual".
     alpha: float = 1.0
+    # Probability of dropping the advantage indicator during training so the
+    # model also learns the unconditional distribution (needed for CFG).
     advantage_dropout_prob: float = 0.1
+    # "single": one forward pass per step, the indicator is dropped per-sample
+    #           with `advantage_dropout_prob` (RLinf / pistar style, ~2x cheaper).
+    # "dual":   paper Eq. 3 written literally: unconditional loss + alpha * conditional loss.
+    loss_mode: str = "single"
+    # Inference guidance. 1.0 = sample from the positive-conditioned policy only
+    # (paper default). >1.0 enables classifier-free guidance:
+    #   v = v_uncond + cfg_beta * (v_cond - v_uncond).
+    cfg_beta: float = 1.0
+
+    # ── Value head (shared π0.5 backbone, plan feature F1) ──────────────────
+    # Adds a distributional value head on the pooled observation tokens of the prefix
+    # (image + prompt/state; the causal advantage tokens are excluded).
+    value_head: bool = False
+    # "joint": policy flow-matching loss + value_loss_weight * value cross-entropy.
+    # "value_only": prefix forward + value cross-entropy only (train a value checkpoint for labeling).
+    value_mode: str = "joint"
+    value_loss_weight: float = 0.1
+    # Joint mode only: stop value gradients from flowing into the shared backbone, so the value
+    # head cannot disturb the policy representation.
+    value_stop_gradient: bool = True
+    value_hidden_dim: int = 512
     positive_fraction: float = 0.4
     value_bins: int = 201
     value_min: float = -1.0
@@ -141,6 +165,19 @@ class Pi0Config(_model.BaseModelConfig):
                 tokenized_prompt=jax.ShapeDtypeStruct([batch_size, self.max_token_len], jnp.int32),
                 tokenized_prompt_mask=jax.ShapeDtypeStruct([batch_size, self.max_token_len], bool),
             )
+            if self.recap.enabled:
+                adv_len = 8
+                observation_spec = observation_spec.replace(
+                    advantage_indicator=jax.ShapeDtypeStruct([batch_size], jnp.bool_),
+                    use_advantage=jax.ShapeDtypeStruct([batch_size], jnp.bool_),
+                    tokenized_advantage_positive=jax.ShapeDtypeStruct([batch_size, adv_len], jnp.int32),
+                    tokenized_advantage_negative=jax.ShapeDtypeStruct([batch_size, adv_len], jnp.int32),
+                    tokenized_advantage_mask=jax.ShapeDtypeStruct([batch_size, adv_len], jnp.bool_),
+                )
+                if self.recap.value_head:
+                    observation_spec = observation_spec.replace(
+                        value_target=jax.ShapeDtypeStruct([batch_size], jnp.float32)
+                    )
         action_spec = jax.ShapeDtypeStruct([batch_size, self.action_horizon, self.action_dim], jnp.float32)
 
         return observation_spec, action_spec

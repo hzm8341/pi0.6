@@ -59,3 +59,35 @@ def test_tokenize_recap_advantage_adds_fixed_token_fields():
     assert item["tokenized_advantage_negative"].shape == (8,)
     assert item["tokenized_advantage_mask"].shape == (8,)
     assert item["use_advantage"].dtype == np.bool_
+
+
+def test_tokenize_recap_advantage_has_no_bos_and_differs_only_in_label():
+    transform = TokenizeReCAPAdvantage(PaligemmaTokenizer(max_len=16), max_len=8)
+    item = transform({"advantage_indicator": np.array(True)})
+
+    pos, neg, mask = (
+        item["tokenized_advantage_positive"],
+        item["tokenized_advantage_negative"],
+        item["tokenized_advantage_mask"],
+    )
+    assert pos[0] != 2  # PaliGemma BOS id must not appear mid-sequence.
+    assert mask[: mask.sum()].all() and not mask[mask.sum() :].any()
+    assert (pos[mask] != neg[mask]).sum() >= 1
+    assert (pos[~mask] == 0).all() and (neg[~mask] == 0).all()
+
+
+def test_tokenize_recap_advantage_defaults_to_positive_at_inference():
+    transform = TokenizeReCAPAdvantage(PaligemmaTokenizer(max_len=16), max_len=8)
+    item = transform({"state": np.zeros(4, dtype=np.float32)})
+
+    assert bool(item["advantage_indicator"]) is True
+    assert bool(item["use_advantage"]) is True
+    assert "tokenized_advantage_positive" in item
+
+
+def test_tokenize_recap_advantage_can_leave_samples_unconditioned():
+    transform = TokenizeReCAPAdvantage(PaligemmaTokenizer(max_len=16), max_len=8, default_indicator=None)
+    item = transform({"state": np.zeros(4, dtype=np.float32)})
+
+    assert "advantage_indicator" not in item
+    assert "tokenized_advantage_positive" not in item

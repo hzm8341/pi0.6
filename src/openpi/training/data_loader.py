@@ -66,11 +66,17 @@ class ReCAPFieldsDataset(Dataset):
     """Attach RECAP sidecar fields to a frame-indexed dataset."""
 
     REQUIRED_FIELDS = ("advantage_indicator", "use_advantage", "is_human_intervention")
+    # Optional float fields: per-frame value-head targets (normalized returns).
+    OPTIONAL_FLOAT_FIELDS = ("value_target",)
+    ALL_FIELDS = REQUIRED_FIELDS + OPTIONAL_FLOAT_FIELDS
 
     def __init__(self, dataset: Dataset, fields_path: str | os.PathLike[str]):
         self._dataset = dataset
         loaded = np.load(fields_path)
         self._fields = {field: np.asarray(loaded[field], dtype=bool) for field in self.REQUIRED_FIELDS}
+        for field in self.OPTIONAL_FLOAT_FIELDS:
+            if field in loaded:
+                self._fields[field] = np.asarray(loaded[field], dtype=np.float32)
         for field, values in self._fields.items():
             if len(values) != len(dataset):
                 raise ValueError(
@@ -82,7 +88,7 @@ class ReCAPFieldsDataset(Dataset):
         idx = index.__index__()
         item = dict(self._dataset[index])
         for field, values in self._fields.items():
-            item[field] = np.asarray(values[idx], dtype=np.bool_)
+            item[field] = np.asarray(values[idx], dtype=values.dtype)
         return item
 
     def __len__(self) -> int:
@@ -215,8 +221,10 @@ def transform_dataset(dataset: Dataset, data_config: _config.DataConfig, *, skip
     return TransformedDataset(
         dataset,
         [
-            *data_config.repack_transforms.inputs,
-            *data_config.data_transforms.inputs,
+            _transforms.PreserveFields(
+                ReCAPFieldsDataset.ALL_FIELDS,
+                [*data_config.repack_transforms.inputs, *data_config.data_transforms.inputs],
+            ),
             _transforms.Normalize(norm_stats, use_quantiles=data_config.use_quantile_norm),
             *data_config.model_transforms.inputs,
         ],
@@ -243,8 +251,10 @@ def transform_iterable_dataset(
     return IterableTransformedDataset(
         dataset,
         [
-            *data_config.repack_transforms.inputs,
-            *data_config.data_transforms.inputs,
+            _transforms.PreserveFields(
+                ReCAPFieldsDataset.ALL_FIELDS,
+                [*data_config.repack_transforms.inputs, *data_config.data_transforms.inputs],
+            ),
             _transforms.Normalize(norm_stats, use_quantiles=data_config.use_quantile_norm),
             *data_config.model_transforms.inputs,
         ],

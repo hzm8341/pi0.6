@@ -44,6 +44,18 @@ def make_attn_mask(input_mask, mask_ar):
     return jnp.logical_and(attn_mask, valid_mask)
 
 
+class ValueHead(nnx.Module):
+    """Two-layer MLP → value-bin logits. Named sub-modules (not nnx.Sequential) so parameter paths
+    survive a checkpoint round trip (Sequential's integer list keys come back as strings)."""
+
+    def __init__(self, in_dim: int, hidden_dim: int, num_bins: int, *, rngs: nnx.Rngs):
+        self.hidden = nnx.Linear(in_dim, hidden_dim, rngs=rngs)
+        self.out = nnx.Linear(hidden_dim, num_bins, rngs=rngs)
+
+    def __call__(self, x):
+        return self.out(nnx.swish(self.hidden(x)))
+
+
 @at.typecheck
 def posemb_sincos(
     pos: at.Real[at.Array, " b"], embedding_dim: int, min_period: float, max_period: float
@@ -113,6 +125,24 @@ class Pi0(_model.BaseModel):
         self.recap_enabled = config.recap.enabled
         self.recap_alpha = config.recap.alpha
         self.recap_advantage_dropout_prob = config.recap.advantage_dropout_prob
+        if config.recap.loss_mode not in ("single", "dual"):
+            raise ValueError(f"Unknown RECAP loss_mode: {config.recap.loss_mode!r}")
+        self.recap_loss_mode = config.recap.loss_mode
+        self.recap_cfg_beta = float(config.recap.cfg_beta)
+
+        # RECAP value head on the shared backbone (plan feature F1).
+        recap = config.recap
+        self.value_head_enabled = recap.enabled and recap.value_head
+        if self.value_head_enabled:
+            if recap.value_mode not in ("joint", "value_only"):
+                raise ValueError(f"Unknown RECAP value_mode: {recap.value_mode!r}")
+            self.value_mode = recap.value_mode
+            self.value_loss_weight = recap.value_loss_weight
+            self.value_stop_gradient = recap.value_stop_gradient
+            self.value_bins = recap.value_bins
+            self.value_min = recap.value_min
+            self.value_max = recap.value_max
+            self.value_head = ValueHead(paligemma_config.width, recap.value_hidden_dim, recap.value_bins, rngs=rngs)
 
         # Linear projection for proprioceptive history (continuous embedding).
         if config.use_video_memory and config.use_state_history:
@@ -131,13 +161,26 @@ class Pi0(_model.BaseModel):
 
         Token order (MEM-aware):
           [language-memory tokens]  [image tokens × N_cams]
-          [language-prompt tokens]  [state-history tokens]
+          [language-prompt tokens]  [state-history tokens]  [RECAP advantage tokens]
 
-        When MEM is disabled (all flags False) this is identical to π0.5.
+        When MEM and RECAP are disabled this is identical to π0.5.
+        """
+        tokens, input_mask, ar_mask, _ = self._embed_prefix_with_advantage(obs)
+        return tokens, input_mask, ar_mask
+
+    def _embed_prefix_with_advantage(self, obs: _model.Observation):
+        """Like `embed_prefix`, but also returns a (b, s) mask marking the RECAP advantage tokens.
+
+        The advantage tokens form their own causal block at the end of the prefix: they attend to
+        everything before them, but image / prompt tokens cannot attend to them. This keeps the
+        observation representation independent of the indicator (so a value head can read it and
+        conditional / unconditional CFG branches can share the prefix KV cache), and matches the
+        paper, where "Advantage: ..." follows the prompt in a causal sequence.
         """
         input_mask = []
         ar_mask = []
         tokens = []
+        advantage_positions = []
 
         # ── (A) Long-term language memory ────────────────────────────────────
         if self.use_language_memory and obs.tokenized_memory is not None:
@@ -193,14 +236,23 @@ class Pi0(_model.BaseModel):
             )
             adv_tokens = self.PaliGemma.llm(adv_ids, method="embed")
             adv_mask = jnp.logical_and(obs.tokenized_advantage_mask, obs.use_advantage[:, None])
+            prefix_len = sum(t.shape[1] for t in tokens)
             tokens.append(adv_tokens)
             input_mask.append(adv_mask)
-            ar_mask += [False] * adv_tokens.shape[1]
+            ar_mask += [True] + [False] * (adv_tokens.shape[1] - 1)
+            advantage_positions = [
+                jnp.zeros((adv_tokens.shape[0], prefix_len), dtype=jnp.bool_),
+                obs.tokenized_advantage_mask,
+            ]
 
         tokens = jnp.concatenate(tokens, axis=1)
         input_mask = jnp.concatenate(input_mask, axis=1)
         ar_mask = jnp.array(ar_mask)
-        return tokens, input_mask, ar_mask
+        if advantage_positions:
+            advantage_mask = jnp.concatenate(advantage_positions, axis=1)
+        else:
+            advantage_mask = jnp.zeros(input_mask.shape, dtype=jnp.bool_)
+        return tokens, input_mask, ar_mask, advantage_mask
 
     def _encode_video_frames(
         self,
@@ -304,6 +356,13 @@ class Pi0(_model.BaseModel):
     def _flow_matching_loss(
         self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
     ) -> at.Float[at.Array, "*b ah"]:
+        loss, _ = self._flow_matching_loss_and_value_features(rng, observation, actions, train=train)
+        return loss
+
+    def _flow_matching_loss_and_value_features(
+        self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
+    ):
+        """Flow-matching loss plus pooled observation features (b, emb) from the same forward pass."""
         preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
         observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
 
@@ -315,7 +374,7 @@ class Pi0(_model.BaseModel):
         u_t = noise - actions
 
         # one big forward pass of prefix + suffix at once
-        prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+        prefix_tokens, prefix_mask, prefix_ar_mask, advantage_mask = self._embed_prefix_with_advantage(observation)
         suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(observation, x_t, time)
         input_mask = jnp.concatenate([prefix_mask, suffix_mask], axis=1)
         ar_mask = jnp.concatenate([prefix_ar_mask, suffix_ar_mask], axis=0)
@@ -326,7 +385,58 @@ class Pi0(_model.BaseModel):
         )
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
-        return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+        loss = jnp.mean(jnp.square(v_t - u_t), axis=-1)
+        return loss, self._pool_observation_tokens(prefix_out, prefix_mask, advantage_mask)
+
+    # ── RECAP value head ─────────────────────────────────────────────────────
+    @staticmethod
+    def _pool_observation_tokens(prefix_out, prefix_mask, advantage_mask):
+        """Masked mean over valid prefix tokens, excluding the advantage tokens.
+
+        Advantage tokens form a trailing causal block, so the remaining prefix outputs do not depend
+        on the indicator: the value estimate is V(o, l), not conditioned on the advantage label.
+        """
+        mask = jnp.logical_and(prefix_mask, jnp.logical_not(advantage_mask)).astype(jnp.float32)
+        summed = jnp.einsum("bsd,bs->bd", prefix_out.astype(jnp.float32), mask)
+        return summed / jnp.maximum(mask.sum(axis=1, keepdims=True), 1.0)
+
+    def _observation_features(self, observation: _model.Observation):
+        """Prefix-only forward pass → pooled observation features (b, emb). Expects a preprocessed observation."""
+        prefix_tokens, prefix_mask, prefix_ar_mask, advantage_mask = self._embed_prefix_with_advantage(observation)
+        attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
+        positions = jnp.cumsum(prefix_mask, axis=1) - 1
+        (prefix_out, _), _ = self.PaliGemma.llm([prefix_tokens, None], mask=attn_mask, positions=positions)
+        return self._pool_observation_tokens(prefix_out, prefix_mask, advantage_mask)
+
+    def _value_bin_centers(self):
+        return jnp.linspace(self.value_min, self.value_max, self.value_bins)
+
+    def _value_cross_entropy(self, features, value_target):
+        """Cross-entropy against the nearest value bin (paper: discretized empirical returns, 201 bins)."""
+        logits = self.value_head(features).astype(jnp.float32)
+        clipped = jnp.clip(value_target.astype(jnp.float32), self.value_min, self.value_max)
+        scaled = (clipped - self.value_min) / (self.value_max - self.value_min)
+        target_bins = jnp.round(scaled * (self.value_bins - 1)).astype(jnp.int32)
+        log_probs = jax.nn.log_softmax(logits, axis=-1)
+        return -jnp.take_along_axis(log_probs, target_bins[:, None], axis=-1)[:, 0]
+
+    def predict_value(self, observation: _model.Observation):
+        """Returns (expected value (b,), bin probabilities (b, bins)) for raw (unpreprocessed) observations."""
+        if not self.value_head_enabled:
+            raise ValueError("predict_value requires ReCAPConfig(enabled=True, value_head=True).")
+        observation = _model.preprocess_observation(None, observation, train=False)
+        logits = self.value_head(self._observation_features(observation)).astype(jnp.float32)
+        probs = jax.nn.softmax(logits, axis=-1)
+        return probs @ self._value_bin_centers(), probs
+
+    def compute_value_loss(
+        self, rng: at.KeyArrayLike, observation: _model.Observation, *, train: bool = False
+    ) -> at.Float[at.Array, " b"]:
+        """Value-only objective: prefix forward pass + cross-entropy (gradients reach the backbone)."""
+        if observation.value_target is None:
+            raise ValueError("Value training requires `value_target` in the batch.")
+        observation = _model.preprocess_observation(rng, observation, train=train)
+        return self._value_cross_entropy(self._observation_features(observation), observation.value_target)
 
     def compute_recap_loss(
         self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
@@ -338,11 +448,31 @@ class Pi0(_model.BaseModel):
             p=1.0 - self.recap_advantage_dropout_prob,
             shape=(batch_size,),
         )
-        uncond_obs = observation.replace(use_advantage=jnp.zeros((batch_size,), dtype=jnp.bool_))
+        if observation.use_advantage is not None:
+            keep = jnp.logical_and(keep, observation.use_advantage)
         cond_obs = observation.replace(use_advantage=keep)
+
+        if self.value_head_enabled and self.value_mode == "value_only":
+            value_loss = self.compute_value_loss(cond_rng, observation, train=train)
+            return jnp.broadcast_to(value_loss[:, None], actions.shape[:-1])
+
+        if self.recap_loss_mode == "single":
+            loss, features = self._flow_matching_loss_and_value_features(cond_rng, cond_obs, actions, train=train)
+            return loss + self._joint_value_loss(features, observation)[:, None]
+
+        uncond_obs = observation.replace(use_advantage=jnp.zeros((batch_size,), dtype=jnp.bool_))
         loss_uncond = self._flow_matching_loss(uncond_rng, uncond_obs, actions, train=train)
-        loss_cond = self._flow_matching_loss(cond_rng, cond_obs, actions, train=train)
-        return loss_uncond + self.recap_alpha * loss_cond
+        loss_cond, features = self._flow_matching_loss_and_value_features(cond_rng, cond_obs, actions, train=train)
+        return loss_uncond + self.recap_alpha * loss_cond + self._joint_value_loss(features, observation)[:, None]
+
+    def _joint_value_loss(self, features, observation: _model.Observation):
+        """Weighted value cross-entropy for joint training, or zeros when there is no value head / target."""
+        batch_size = features.shape[0]
+        if not self.value_head_enabled or observation.value_target is None:
+            return jnp.zeros((batch_size,), dtype=jnp.float32)
+        if self.value_stop_gradient:
+            features = jax.lax.stop_gradient(features)
+        return self.value_loss_weight * self._value_cross_entropy(features, observation.value_target)
 
     @override
     def sample_actions(
@@ -352,8 +482,21 @@ class Pi0(_model.BaseModel):
         *,
         num_steps: int | at.Int[at.Array, ""] = 10,
         noise: at.Float[at.Array, "b ah ad"] | None = None,
+        cfg_beta: float | at.Float[at.Array, ""] | None = None,
     ) -> _model.Actions:
+        """Sample actions with flow matching.
+
+        For RECAP models, `cfg_beta` (default: `config.recap.cfg_beta`) controls classifier-free
+        guidance over the advantage indicator. 1.0 samples from the conditioned policy only;
+        values > 1 combine conditional and unconditional velocities. Both branches share the
+        prefix KV cache: they differ only in whether the suffix may attend to the advantage tokens.
+        """
         observation = _model.preprocess_observation(None, observation, train=False)
+        if cfg_beta is None:
+            cfg_beta = self.recap_cfg_beta
+            use_cfg = self.recap_enabled and cfg_beta != 1.0
+        else:
+            use_cfg = self.recap_enabled
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
         dt = -1.0 / num_steps
@@ -362,13 +505,15 @@ class Pi0(_model.BaseModel):
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
         # first fill KV cache with a forward pass of the prefix
-        prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+        prefix_tokens, prefix_mask, prefix_ar_mask, advantage_mask = self._embed_prefix_with_advantage(observation)
         prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
         positions = jnp.cumsum(prefix_mask, axis=1) - 1
         _, kv_cache = self.PaliGemma.llm([prefix_tokens, None], mask=prefix_attn_mask, positions=positions)
+        # The unconditional branch hides the advantage tokens. Because those tokens sit in their own
+        # causal block at the end of the prefix, the KV entries of every other token are unchanged.
+        uncond_prefix_mask = jnp.logical_and(prefix_mask, jnp.logical_not(advantage_mask))
 
-        def step(carry):
-            x_t, time = carry
+        def velocity(x_t, time, prefix_mask):
             suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
                 observation, x_t, jnp.broadcast_to(time, batch_size)
             )
@@ -397,8 +542,16 @@ class Pi0(_model.BaseModel):
                 adarms_cond=[None, adarms_cond],
             )
             assert prefix_out is None
-            v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+            return self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
+        def step(carry):
+            x_t, time = carry
+            v_t = velocity(x_t, time, prefix_mask)
+            if use_cfg:
+                # Combine in float32: in bfloat16, v_u + 1 * (v_c - v_u) visibly differs from v_c.
+                v_cond = v_t.astype(jnp.float32)
+                v_uncond = velocity(x_t, time, uncond_prefix_mask).astype(jnp.float32)
+                v_t = (v_uncond + cfg_beta * (v_cond - v_uncond)).astype(x_t.dtype)
             return x_t + dt * v_t, time + dt
 
         def cond(carry):

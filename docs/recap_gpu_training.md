@@ -79,6 +79,42 @@ XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py pi05_recap \
 
 The `lerobot_fields.npz` arrays must match the flattened frame order and length of the LeRobot dataset used by the dataloader.
 
+### RECAP model options
+
+`ReCAPConfig` (in `src/openpi/models/pi0_config.py`) controls training and inference:
+
+- `loss_mode="single"` (default): one forward pass per step; the advantage indicator is dropped per sample with `advantage_dropout_prob`. `"dual"` computes the paper's unconditional + `alpha` × conditional loss literally (about 2× compute).
+- `cfg_beta=1.0` (default): inference samples from the "Advantage: positive" conditioned policy. `cfg_beta>1` enables classifier-free guidance, `v = v_uncond + beta * (v_cond - v_uncond)`. Both branches share the prefix KV cache, so CFG only adds a second action-expert pass per denoising step.
+
+Override from the CLI, e.g. `--model.recap.cfg-beta 1.5`, or pass `sample_kwargs={"cfg_beta": 1.5}` when creating a policy.
+
+At inference no `advantage_indicator` is sent; `TokenizeReCAPAdvantage` fills in `True` (positive), matching the paper. Training samples without sidecar labels are also treated as positive (demonstration data).
+
+### Learned value labels (replaces the progress proxy)
+
+The proxy labels from `scripts/label_recap_advantage.py` give every frame of a successful episode the same advantage, so they only separate successful from failed episodes. To label with a learned value head on the π0.5 backbone:
+
+```bash
+# 1. Proxy labels; lerobot_fields.npz now also contains `value_target` (normalized returns in [-1, 0]).
+uv run scripts/label_recap_advantage.py --input-episodes $EPISODES_DIR --output-dir outputs/recap_labels
+
+# 2. Train the value model (prefix forward + 201-bin cross-entropy only).
+uv run scripts/train.py pi05_recap_value --data.repo-id <repo> \
+  --data.recap-fields-path outputs/recap_labels/lerobot_fields.npz --exp-name value_v1
+
+# 3. Predict V(o_t) for every frame, recompute N-step advantages, threshold (human interventions stay positive).
+uv run scripts/label_recap_with_value.py --config-name pi05_recap_value \
+  --checkpoint-dir checkpoints/pi05_recap_value/value_v1/<step> \
+  --labels outputs/recap_labels/recap_labels.jsonl \
+  --recap-fields-path outputs/recap_labels/lerobot_fields.npz \
+  --output-dir outputs/recap_labels_value --positive-fraction 0.3 --n-step-lookahead 50
+
+# 4. Train the policy on the new labels.
+uv run scripts/train.py pi05_recap --data.recap-fields-path outputs/recap_labels_value/lerobot_fields.npz ...
+```
+
+Check `outputs/recap_labels_value/value_label_summary.json`: `value_return_spearman` should be high (RLinf monitors the same metric) and `positive_fraction_actual` close to the requested fraction.
+
 ## 5. Common Failures
 
 - `RECAP field ... must have the same length as the dataset`: the sidecar arrays do not match the LeRobot flattened frame dataset. Regenerate labels from the same trimmed dataset that training reads, or implement permanent LeRobot write-back for that dataset.

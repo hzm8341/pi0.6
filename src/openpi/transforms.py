@@ -102,6 +102,23 @@ class RepackTransform(DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class PreserveFields(DataTransformFn):
+    """Runs `transforms` and re-attaches top-level `fields` that they dropped.
+
+    Repack and platform input transforms build fresh dicts, which would silently discard
+    per-frame sidecar labels such as the RECAP advantage indicator.
+    """
+
+    fields: Sequence[str]
+    transforms: Sequence[DataTransformFn]
+
+    def __call__(self, data: DataDict) -> DataDict:
+        kept = {key: data[key] for key in self.fields if key in data}
+        out = compose(self.transforms)(data)
+        return {**kept, **out}
+
+
+@dataclasses.dataclass(frozen=True)
 class InjectDefaultPrompt(DataTransformFn):
     prompt: str | None
 
@@ -268,18 +285,37 @@ class TokenizePrompt(DataTransformFn):
 
 @dataclasses.dataclass(frozen=True)
 class TokenizeReCAPAdvantage(DataTransformFn):
+    """Adds the fixed "Advantage: positive/negative" token ids used by RECAP models.
+
+    Samples without an `advantage_indicator` (e.g. inference requests, or plain demonstration
+    data) get `default_indicator`. The default `True` matches the paper: demonstrations are
+    treated as positive, and at inference the policy is conditioned on "Advantage: positive".
+    Set `default_indicator=None` to leave such samples unconditioned.
+    """
+
     tokenizer: _tokenizer.PaligemmaTokenizer
     max_len: int = 8
+    default_indicator: bool | None = True
 
     def __call__(self, data: DataDict) -> DataDict:
         if "advantage_indicator" not in data:
-            return data
+            if self.default_indicator is None:
+                return data
+            data = {**data, "advantage_indicator": np.asarray(self.default_indicator)}
 
-        pos_tokens, pos_mask = self.tokenizer.tokenize("Advantage: positive")
-        neg_tokens, neg_mask = self.tokenizer.tokenize("Advantage: negative")
-        data["tokenized_advantage_positive"] = pos_tokens[: self.max_len].astype(np.int32)
-        data["tokenized_advantage_negative"] = neg_tokens[: self.max_len].astype(np.int32)
-        data["tokenized_advantage_mask"] = np.logical_or(pos_mask[: self.max_len], neg_mask[: self.max_len])
+        pos_ids = self.tokenizer.encode_raw("Advantage: positive")
+        neg_ids = self.tokenizer.encode_raw("Advantage: negative")
+        # The model picks positive/negative ids per sample but shares one mask, so both must have the
+        # same length; otherwise padding of the shorter one would become visible.
+        if len(pos_ids) != len(neg_ids) or len(pos_ids) > self.max_len:
+            raise ValueError(
+                f"RECAP advantage texts must tokenize to equal lengths <= {self.max_len}, "
+                f"got {len(pos_ids)} and {len(neg_ids)}."
+            )
+        pad = self.max_len - len(pos_ids)
+        data["tokenized_advantage_positive"] = np.asarray(pos_ids + [0] * pad, dtype=np.int32)
+        data["tokenized_advantage_negative"] = np.asarray(neg_ids + [0] * pad, dtype=np.int32)
+        data["tokenized_advantage_mask"] = np.asarray([True] * len(pos_ids) + [False] * pad, dtype=bool)
         data.setdefault("use_advantage", np.asarray(True))
         return data
 

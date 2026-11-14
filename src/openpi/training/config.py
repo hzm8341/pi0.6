@@ -115,6 +115,18 @@ class GroupFactory(Protocol):
 
 
 @dataclasses.dataclass(frozen=True)
+class EmptyGroupFactory(GroupFactory):
+    """Creates an empty transform group.
+
+    Used as a default instead of `GroupFactory` itself: instantiating a `Protocol` raises
+    "Protocols cannot be instantiated" on recent Python 3.11 patch releases.
+    """
+
+    def __call__(self, model_config: _model.BaseModelConfig) -> _transforms.Group:
+        return _transforms.Group()
+
+
+@dataclasses.dataclass(frozen=True)
 class ModelTransformFactory(GroupFactory):
     """Creates model transforms for standard pi0 models."""
 
@@ -246,7 +258,7 @@ class FakeDataConfig(DataConfigFactory):
 @dataclasses.dataclass(frozen=True)
 class SimpleDataConfig(DataConfigFactory):
     # Factory for the data transforms.
-    data_transforms: tyro.conf.Suppress[GroupFactory] = dataclasses.field(default_factory=GroupFactory)
+    data_transforms: tyro.conf.Suppress[GroupFactory] = dataclasses.field(default_factory=EmptyGroupFactory)
     # Factory for the model transforms.
     model_transforms: tyro.conf.Suppress[GroupFactory] = dataclasses.field(default_factory=ModelTransformFactory)
 
@@ -626,6 +638,29 @@ _CONFIGS = [
             peak_lr=5e-5,
             decay_steps=1_000_000,
             decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        batch_size=64,
+        num_train_steps=30_000,
+    ),
+    # RECAP value model on the shared π0.5 backbone (plan Phase 2): prefix forward + 201-bin
+    # cross-entropy only. Train with `--data.recap-fields-path` pointing at a sidecar that has
+    # `value_target`, then label with scripts/label_recap_with_value.py.
+    TrainConfig(
+        name="pi05_recap_value",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            recap=pi0_config.ReCAPConfig(enabled=True, value_head=True, value_mode="value_only"),
+        ),
+        data=SimpleDataConfig(model_transforms=ReCAPModelTransformFactory()),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi05_base/params", missing_regex=".*(lora|value_head).*"
+        ),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=500,
+            peak_lr=5e-5,
+            decay_steps=30_000,
+            decay_lr=5e-6,
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         batch_size=64,
@@ -1199,6 +1234,21 @@ _CONFIGS = [
         num_train_steps=2,
         overwrite=True,
         exp_name="debug_pi05_recap",
+        wandb_enabled=False,
+    ),
+    TrainConfig(
+        name="debug_pi05_recap_value",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="dummy",
+            action_expert_variant="dummy",
+            recap=pi0_config.ReCAPConfig(enabled=True, value_head=True, value_mode="value_only"),
+        ),
+        data=FakeDataConfig(),
+        batch_size=2,
+        num_train_steps=2,
+        overwrite=True,
+        exp_name="debug_pi05_recap_value",
         wandb_enabled=False,
     ),
     # RoboArena & PolaRiS configs.

@@ -47,6 +47,10 @@ class PaligemmaTokenizer:
 
         return np.asarray(tokens), np.asarray(mask)
 
+    def encode_raw(self, text: str) -> list[int]:
+        """Encodes `text` without BOS or any prompt template (for tokens spliced mid-sequence)."""
+        return list(self._tokenizer.encode(text))
+
 
 class FASTTokenizer:
     def __init__(self, max_len: int = 256, fast_tokenizer_path: str = "physical-intelligence/fast"):

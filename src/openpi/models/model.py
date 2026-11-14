@@ -127,9 +127,11 @@ class Observation(Generic[ArrayT]):
     advantage_indicator: at.Bool[ArrayT, "*b"] | None = None
     use_advantage: at.Bool[ArrayT, "*b"] | None = None
     is_human_intervention: at.Bool[ArrayT, "*b"] | None = None
-    tokenized_advantage_positive: at.Int[ArrayT, "*b l"] | None = None
-    tokenized_advantage_negative: at.Int[ArrayT, "*b l"] | None = None
-    tokenized_advantage_mask: at.Bool[ArrayT, "*b l"] | None = None
+    tokenized_advantage_positive: at.Int[ArrayT, "*b al"] | None = None
+    tokenized_advantage_negative: at.Int[ArrayT, "*b al"] | None = None
+    tokenized_advantage_mask: at.Bool[ArrayT, "*b al"] | None = None
+    # RECAP value-head target: normalized empirical return in [value_min, value_max] (training only).
+    value_target: at.Float[ArrayT, "*b"] | None = None
 
     @classmethod
     def from_dict(cls, data: at.PyTree[ArrayT]) -> "Observation[ArrayT]":
@@ -147,7 +149,8 @@ class Observation(Generic[ArrayT]):
         # --- MEM optional fields ---
         image_history = None
         image_history_masks = None
-        if "image_history" in data:
+        # `to_dict()` emits the key with a None value when MEM is unused.
+        if data.get("image_history") is not None:
             image_history = {}
             for key, frames in data["image_history"].items():
                 if frames.dtype == np.uint8:
@@ -178,6 +181,7 @@ class Observation(Generic[ArrayT]):
             tokenized_advantage_positive=data.get("tokenized_advantage_positive"),
             tokenized_advantage_negative=data.get("tokenized_advantage_negative"),
             tokenized_advantage_mask=data.get("tokenized_advantage_mask"),
+            value_target=data.get("value_target"),
         )
 
     def to_dict(self) -> at.PyTree[ArrayT]:
@@ -288,6 +292,7 @@ def preprocess_observation(
         tokenized_advantage_positive=observation.tokenized_advantage_positive,
         tokenized_advantage_negative=observation.tokenized_advantage_negative,
         tokenized_advantage_mask=observation.tokenized_advantage_mask,
+        value_target=observation.value_target,
     )
 
 

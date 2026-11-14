@@ -2,6 +2,10 @@
 
 This file tracks the parts of the requested RECAP route that are not yet fully implemented.
 
+> **Superseded (2026-11-14):** priorities and status now live in `docs/RECAP_PLAN.md`.
+> Done since this list was written: learned value head on the π0.5 backbone (`pi05_recap_value`,
+> `scripts/label_recap_with_value.py`), positive conditioning at inference, CFG (`cfg_beta`).
+
 ## Offline RECAP
 
 - [ ] Implement optional true LeRobot in-place dataset write-back.

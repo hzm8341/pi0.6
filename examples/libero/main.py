@@ -1,8 +1,10 @@
 import collections
 import dataclasses
+import json
 import logging
 import math
 import pathlib
+from typing import List, Optional  # noqa: UP035  (the Docker client runs Python 3.8)
 
 import imageio
 from libero.libero import benchmark
@@ -41,6 +43,21 @@ class Args:
     # Utils
     #################################################################################################################
     video_out_path: str = "data/libero/videos"  # Path to save videos
+    save_videos: bool = True
+
+    #################################################################################################################
+    # RECAP experiment (docs/RECAP_PLAN.md, Phase 4)
+    #################################################################################################################
+    # Only run these task ids of the suite (default: all tasks).
+    task_ids: Optional[List[int]] = None  # noqa: UP006, UP007
+    # Index of the first episode; episode i uses initial state i % len(initial_states), so
+    # num_trials_per_task > 50 cycles through the fixed initial states (used to collect rollouts).
+    episode_start: int = 0
+    # If set, save one compressed npz per episode (images as the policy sees them before resizing, i.e.
+    # 256x256 rotated 180 degrees, 8-dim state, executed 7-dim actions, success) for RECAP datasets.
+    record_dir: Optional[str] = None  # noqa: UP007
+    # If set, write a JSON summary (per-task success rates and per-episode results) here.
+    summary_path: Optional[str] = None  # noqa: UP007
 
     seed: int = 7  # Random Seed (for reproducibility)
 
@@ -72,9 +89,15 @@ def eval_libero(args: Args) -> None:
 
     client = _websocket_client_policy.WebsocketClientPolicy(args.host, args.port)
 
+    if args.record_dir is not None:
+        pathlib.Path(args.record_dir).mkdir(parents=True, exist_ok=True)
+    task_ids = args.task_ids if args.task_ids is not None else list(range(num_tasks_in_suite))
+    episode_results = []
+    task_results = {}
+
     # Start evaluation
     total_episodes, total_successes = 0, 0
-    for task_id in tqdm.tqdm(range(num_tasks_in_suite)):
+    for task_id in tqdm.tqdm(task_ids):
         # Get task
         task = task_suite.get_task(task_id)
 
@@ -86,7 +109,7 @@ def eval_libero(args: Args) -> None:
 
         # Start episodes
         task_episodes, task_successes = 0, 0
-        for episode_idx in tqdm.tqdm(range(args.num_trials_per_task)):
+        for episode_idx in tqdm.tqdm(range(args.episode_start, args.episode_start + args.num_trials_per_task)):
             logging.info(f"\nTask: {task_description}")
 
             # Reset environment
@@ -94,13 +117,16 @@ def eval_libero(args: Args) -> None:
             action_plan = collections.deque()
 
             # Set initial states
-            obs = env.set_init_state(initial_states[episode_idx])
+            init_state_idx = episode_idx % len(initial_states)
+            obs = env.set_init_state(initial_states[init_state_idx])
 
             # Setup
             t = 0
+            done = False
             replay_images = []
+            record = collections.defaultdict(list)
 
-            logging.info(f"Starting episode {task_episodes+1}...")
+            logging.info(f"Starting episode {task_episodes + 1}...")
             while t < max_steps + args.num_steps_wait:
                 try:
                     # IMPORTANT: Do nothing for the first few timesteps because the simulator drops objects
@@ -114,6 +140,17 @@ def eval_libero(args: Args) -> None:
                     # IMPORTANT: rotate 180 degrees to match train preprocessing
                     img = np.ascontiguousarray(obs["agentview_image"][::-1, ::-1])
                     wrist_img = np.ascontiguousarray(obs["robot0_eye_in_hand_image"][::-1, ::-1])
+                    state = np.concatenate(
+                        (
+                            obs["robot0_eef_pos"],
+                            _quat2axisangle(obs["robot0_eef_quat"]),
+                            obs["robot0_gripper_qpos"],
+                        )
+                    )
+                    if args.record_dir is not None:
+                        record["image"].append(image_tools.convert_to_uint8(img))
+                        record["wrist_image"].append(image_tools.convert_to_uint8(wrist_img))
+                        record["state"].append(state.astype(np.float32))
                     img = image_tools.convert_to_uint8(
                         image_tools.resize_with_pad(img, args.resize_size, args.resize_size)
                     )
@@ -130,24 +167,20 @@ def eval_libero(args: Args) -> None:
                         element = {
                             "observation/image": img,
                             "observation/wrist_image": wrist_img,
-                            "observation/state": np.concatenate(
-                                (
-                                    obs["robot0_eef_pos"],
-                                    _quat2axisangle(obs["robot0_eef_quat"]),
-                                    obs["robot0_gripper_qpos"],
-                                )
-                            ),
+                            "observation/state": state,
                             "prompt": str(task_description),
                         }
 
                         # Query model to get action
                         action_chunk = client.infer(element)["actions"]
-                        assert (
-                            len(action_chunk) >= args.replan_steps
-                        ), f"We want to replan every {args.replan_steps} steps, but policy only predicts {len(action_chunk)} steps."
+                        assert len(action_chunk) >= args.replan_steps, (
+                            f"We want to replan every {args.replan_steps} steps, but policy only predicts {len(action_chunk)} steps."
+                        )
                         action_plan.extend(action_chunk[: args.replan_steps])
 
                     action = action_plan.popleft()
+                    if args.record_dir is not None:
+                        record["actions"].append(np.asarray(action, dtype=np.float32))
 
                     # Execute action in environment
                     obs, reward, done, info = env.step(action.tolist())
@@ -167,10 +200,36 @@ def eval_libero(args: Args) -> None:
             # Save a replay video of the episode
             suffix = "success" if done else "failure"
             task_segment = task_description.replace(" ", "_")
-            imageio.mimwrite(
-                pathlib.Path(args.video_out_path) / f"rollout_{task_segment}_{suffix}.mp4",
-                [np.asarray(x) for x in replay_images],
-                fps=10,
+            if args.save_videos:
+                imageio.mimwrite(
+                    pathlib.Path(args.video_out_path) / f"rollout_{task_segment}_ep{episode_idx:04d}_{suffix}.mp4",
+                    [np.asarray(x) for x in replay_images],
+                    fps=10,
+                )
+
+            # Every recorded state has an executed action, except when an exception interrupted the step.
+            num_frames = len(record["actions"])
+            if args.record_dir is not None and num_frames > 0:
+                np.savez_compressed(
+                    pathlib.Path(args.record_dir) / f"task{task_id:02d}_ep{episode_idx:04d}.npz",
+                    image=np.stack(record["image"][:num_frames]),
+                    wrist_image=np.stack(record["wrist_image"][:num_frames]),
+                    state=np.stack(record["state"][:num_frames]),
+                    actions=np.stack(record["actions"]),
+                    success=np.bool_(done),
+                    prompt=np.str_(task_description),
+                    task_id=np.int64(task_id),
+                    episode_idx=np.int64(episode_idx),
+                    init_state_idx=np.int64(init_state_idx),
+                )
+            episode_results.append(
+                {
+                    "task_id": task_id,
+                    "episode_idx": episode_idx,
+                    "init_state_idx": init_state_idx,
+                    "success": bool(done),
+                    "num_steps": num_frames if args.record_dir is not None else t - args.num_steps_wait,
+                }
             )
 
             # Log current results
@@ -179,11 +238,29 @@ def eval_libero(args: Args) -> None:
             logging.info(f"# successes: {total_successes} ({total_successes / total_episodes * 100:.1f}%)")
 
         # Log final results
+        task_results[task_id] = {
+            "task": task_description,
+            "episodes": task_episodes,
+            "successes": task_successes,
+            "success_rate": task_successes / task_episodes,
+        }
         logging.info(f"Current task success rate: {float(task_successes) / float(task_episodes)}")
         logging.info(f"Current total success rate: {float(total_successes) / float(total_episodes)}")
 
     logging.info(f"Total success rate: {float(total_successes) / float(total_episodes)}")
     logging.info(f"Total episodes: {total_episodes}")
+
+    if args.summary_path is not None:
+        pathlib.Path(args.summary_path).parent.mkdir(parents=True, exist_ok=True)
+        summary = {
+            "args": dataclasses.asdict(args),
+            "total_episodes": total_episodes,
+            "total_successes": total_successes,
+            "success_rate": total_successes / total_episodes,
+            "tasks": task_results,
+            "episodes": episode_results,
+        }
+        pathlib.Path(args.summary_path).write_text(json.dumps(summary, indent=2))
 
 
 def _get_libero_env(task, resolution, seed):

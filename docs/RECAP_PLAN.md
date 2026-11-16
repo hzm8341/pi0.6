@@ -103,6 +103,8 @@
 
 **需新增代码**：`examples/libero/main.py` 的 `--record-dir`（逐 episode 保存）；rollout → LeRobot 转换脚本；三个 LoRA 配置；评估汇总脚本。
 
+**代码状态（2026-11-16）**：上述代码已完成（`main.py` 的 `--task-ids/--episode-start/--record-dir/--summary-path`、`scripts/build_libero_recap_dataset.py`、三个 LoRA 配置、`serve_policy.py --cfg-beta`、`compute_norm_stats.py --repo-id/--output-dir`），在 1 条示范 + 2 条假 rollout 上跑通 建数据集 → 代理标签 → norm stats → 三个配置取 batch。命令见 `docs/recap_libero.md`。
+
 ### Phase 5：真机 HITL（P9 后半，特色 F2 F4）
 
 - [ ] 5.1 `rollout/recap_env.py`、`episode_recorder.py`、`intervention.py`、`safety.py`
@@ -121,3 +123,4 @@
 |---|---|
 | 2026-11-14 | 完成评估，制定本计划；开始 Phase 1 |
 | 2026-11-14 | Phase 1 完成（1.1–1.6）；Phase 2 代码完成 2.1–2.5（共享主干 value head、`pi05_recap_value` 配置、`label_recap_with_value.py`），待真实数据验证 |
+| 2026-11-16 | Phase 4 代码完成（LoRA 配置、rollout 记录、数据集构建、`--cfg-beta`）；33 条 Task-0 示范已下载；LIBERO 客户端 Docker 镜像因 Docker daemon 无代理拉不到 docker.io 而未建成 |

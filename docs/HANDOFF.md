@@ -55,21 +55,18 @@ git push git@github.com:hzm8341/pi0.6.git feat/recap-phase1
 - 确认 libero_10 Task 0 = "put both the alphabet soup and the tomato sauce in the basket"，在 `physical-intelligence/libero` 里 `task_index=5`，共 33 条示范。
 - 数据集元数据已下到 `/media/hzm/data24t/datasets/libero_src/meta/`。
 
-中断 / 未完成（开机后需重做）：
-- **33 条示范下载被中断**（进程退出码 137，只下了 2 个 parquet）。重下：用 `meta/episodes.jsonl` 选出 tasks == 上述字符串的 episode，按 `meta/info.json` 的 `data_path` 用 `hf_hub_download(repo_type="dataset", local_dir=/media/hzm/data24t/datasets/libero_src)` 下载。整个数据集 35GB，不要全下。
-- **`pi05_base` 权重下载被中断**（`~/.cache/openpi/openpi-assets/checkpoints/pi05_base` 只有 565MB，不完整）。删掉该目录后重下：
-  ```bash
-  rm -rf ~/.cache/openpi/openpi-assets/checkpoints/pi05_base
-  .venv/bin/python -c "from openpi.shared import download as d; d.maybe_download('gs://openpi-assets/checkpoints/pi05_base/params', gs={'token':'anon'}); d.maybe_download('gs://openpi-assets/checkpoints/pi05_base/assets', gs={'token':'anon'})"
-  ```
+2026-11-16 更新：
+- 33 条 Task-0 示范已下载完（`/media/hzm/data24t/datasets/libero_src`，`task0_episodes.json`）。
+- `pi05_base` 在重下（`~/.cache/openpi/openpi-assets/checkpoints/pi05_base`，GCS 较慢）。
+- Phase 4 代码已写完并在小数据上跑通，完整命令见 `docs/recap_libero.md`（步骤 A–G）。
+- LIBERO 客户端镜像未建成：Docker daemon 没配代理，拉不到 docker.io 的 `nvidia/cuda` 基础镜像。需要用户用 sudo 给 daemon 配代理（见下）后重跑 `docker build`。
 
-下一步要写的代码（按顺序，详见 RECAP_PLAN.md 的 Phase 4 实验设计）：
-1. `LeRobotLiberoDataConfig` 目前把 `ModelTransformFactory()` 写死在 `create()` 里 → 加一个 `model_transforms` 字段，RECAP 配置传 `ReCAPModelTransformFactory()`。
-2. 三个 LoRA 配置：`pi05_libero_lora_fewshot`（SFT）、`pi05_recap_libero_value_lora`（value_only）、`pi05_recap_libero_lora`（RECAP）。模型：`Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora")`，`freeze_filter=model.get_freeze_filter()`，`ema_decay=None`，10k 步。三者共用一份 norm stats（用全部 33 条示范计算，`AssetsConfig` 指向同一目录）。
-3. `scripts/serve_policy.py` 加 `--cfg-beta`，转成 `sample_kwargs={"cfg_beta": x}` 传给 `create_trained_policy`。
-4. `examples/libero/main.py` 加：只跑指定 task、`--record-dir`（每个 episode 存 npz：256×256 已旋转 180° 的 image/wrist_image、8 维 state、7 维执行动作、success）、结果汇总 JSON、按 `episode_idx % 50` 循环初始状态以采 500 条。
-5. 数据集构建脚本：示范（success=True）+ rollout → 一个本地 LeRobot 数据集（参考 `examples/libero/convert_libero_data_to_lerobot.py` 的 `LeRobotDataset.create/add_frame/save_episode`），同时按相同帧顺序输出 RECAP episode JSON（observation 可为空），供 `label_recap_advantage.py` 使用。
-6. 跑 A–G：few-shot SFT（K 条示范，调到约 50% 成功率）→ 评估 + 采 500 rollout → value → 重新打标签 → RECAP → 评估（β=1/1.5/2）+ 过滤 BC 消融。
+给 Docker daemon 配代理（需 sudo）：
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d
+printf '[Service]\nEnvironment="HTTP_PROXY=http://127.0.0.1:7890" "HTTPS_PROXY=http://127.0.0.1:7890" "NO_PROXY=localhost,127.0.0.1"\n' | sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf
+sudo systemctl daemon-reload && sudo systemctl restart docker
+```
 
 LIBERO 客户端推荐用 Docker（`examples/libero/compose.yml`，Python 3.8 + cu113 本地装很麻烦）；策略服务可直接用本仓库 `.venv` 跑 `scripts/serve_policy.py`。Docker 29.8 + NVIDIA CDI 已就绪。
 

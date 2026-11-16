@@ -338,6 +338,8 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
     """
 
     extra_delta_transform: bool = False
+    # Model transforms (tokenization etc.). RECAP configs pass `ReCAPModelTransformFactory()`.
+    model_transforms: tyro.conf.Suppress[GroupFactory] = dataclasses.field(default_factory=ModelTransformFactory)
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -395,7 +397,7 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
 
         # Model transforms include things like tokenizing the prompt and action targets
         # You do not need to change anything here for your own dataset.
-        model_transforms = ModelTransformFactory()(model_config)
+        model_transforms = self.model_transforms(model_config)
 
         # We return all data transforms for training and inference. No need to change anything here.
         return dataclasses.replace(
@@ -606,6 +608,18 @@ class TrainConfig:
         if self.resume and self.overwrite:
             raise ValueError("Cannot resume and overwrite at the same time.")
 
+
+# Shared pieces of the LIBERO Task-0 RECAP experiment configs.
+_LIBERO_LORA_MODEL = pi0_config.Pi0Config(
+    pi05=True,
+    action_horizon=10,
+    discrete_state_input=False,
+    paligemma_variant="gemma_2b_lora",
+    action_expert_variant="gemma_300m_lora",
+)
+# Norm stats from all 33 Task-0 demos, shared by SFT / value / RECAP so the runs are comparable.
+_LIBERO_TASK0_ASSETS = AssetsConfig(assets_dir="./assets/libero_task0", asset_id="norm_stats")
+_LIBERO_LORA_LR = _optimizer.CosineDecaySchedule(warmup_steps=500, peak_lr=5e-5, decay_steps=10_000, decay_lr=5e-6)
 
 # Use `get_config` if you need to get a config by name in your code.
 _CONFIGS = [
@@ -861,6 +875,72 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
         num_train_steps=30_000,
+    ),
+    #
+    # RECAP vs SFT on LIBERO-10 Task 0 (docs/RECAP_PLAN.md, Phase 4). Single 32GB GPU, so all three use
+    # LoRA, start from pi05_base and share one set of norm stats computed from all 33 Task-0 demos
+    # (see docs/recap_libero.md). Override the dataset with `--data.repo-id`.
+    #
+    TrainConfig(
+        name="pi05_libero_lora_fewshot",
+        model=_LIBERO_LORA_MODEL,
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/libero_task0_demos",
+            assets=_LIBERO_TASK0_ASSETS,
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        freeze_filter=_LIBERO_LORA_MODEL.get_freeze_filter(),
+        ema_decay=None,
+        lr_schedule=_LIBERO_LORA_LR,
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        batch_size=32,
+        num_train_steps=10_000,
+        save_interval=2_500,
+        keep_period=2_500,
+    ),
+    TrainConfig(
+        name="pi05_recap_libero_value_lora",
+        model=dataclasses.replace(
+            _LIBERO_LORA_MODEL,
+            recap=pi0_config.ReCAPConfig(enabled=True, value_head=True, value_mode="value_only"),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/libero_task0_recap",
+            assets=_LIBERO_TASK0_ASSETS,
+            base_config=DataConfig(prompt_from_task=True),
+            model_transforms=ReCAPModelTransformFactory(),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi05_base/params", missing_regex=".*(lora|value_head).*"
+        ),
+        freeze_filter=_LIBERO_LORA_MODEL.get_freeze_filter(),
+        ema_decay=None,
+        lr_schedule=_LIBERO_LORA_LR,
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        batch_size=32,
+        num_train_steps=10_000,
+        save_interval=2_500,
+        keep_period=2_500,
+    ),
+    TrainConfig(
+        name="pi05_recap_libero_lora",
+        model=dataclasses.replace(_LIBERO_LORA_MODEL, recap=pi0_config.ReCAPConfig(enabled=True)),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/libero_task0_recap",
+            assets=_LIBERO_TASK0_ASSETS,
+            base_config=DataConfig(prompt_from_task=True),
+            model_transforms=ReCAPModelTransformFactory(),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        freeze_filter=_LIBERO_LORA_MODEL.get_freeze_filter(),
+        ema_decay=None,
+        lr_schedule=_LIBERO_LORA_LR,
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        batch_size=32,
+        num_train_steps=10_000,
+        save_interval=2_500,
+        keep_period=2_500,
     ),
     #
     # Fine-tuning Aloha configs.

@@ -46,6 +46,10 @@ class Args:
     # prompt.
     default_prompt: str | None = None
 
+    # RECAP only: classifier-free guidance scale. None uses the config's `recap.cfg_beta`; 1.0 samples the
+    # "Advantage: positive" conditioned policy; >1 enables CFG.
+    cfg_beta: float | None = None
+
     # Port to serve the policy on.
     port: int = 8000
     # Record the policy's behavior for debugging.
@@ -89,8 +93,12 @@ def create_policy(args: Args) -> _policy.Policy:
     """Create a policy from the given arguments."""
     match args.policy:
         case Checkpoint():
+            sample_kwargs = {"cfg_beta": args.cfg_beta} if args.cfg_beta is not None else None
             return _policy_config.create_trained_policy(
-                _config.get_config(args.policy.config), args.policy.dir, default_prompt=args.default_prompt
+                _config.get_config(args.policy.config),
+                args.policy.dir,
+                default_prompt=args.default_prompt,
+                sample_kwargs=sample_kwargs,
             )
         case Default():
             return create_default_policy(args.env, default_prompt=args.default_prompt)

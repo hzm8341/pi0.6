@@ -57,9 +57,10 @@ git push git@github.com:hzm8341/pi0.6.git feat/recap-phase1
 
 2026-11-16 更新：
 - 33 条 Task-0 示范已下载完（`/media/hzm/data24t/datasets/libero_src`，`task0_episodes.json`）。
-- `pi05_base` 在重下（`~/.cache/openpi/openpi-assets/checkpoints/pi05_base`，GCS 较慢）。
+- `pi05_base` 已下完（12GB）。gcsfs 不走代理会卡死，改用 `requests` + 代理分段续传才下完。
 - Phase 4 代码已写完并在小数据上跑通，完整命令见 `docs/recap_libero.md`（步骤 A–G）。
-- LIBERO 客户端镜像未建成：Docker daemon 没配代理，拉不到 docker.io 的 `nvidia/cuda` 基础镜像。需要用户用 sudo 给 daemon 配代理（见下）后重跑 `docker build`。
+- Docker daemon 已配代理（2026-11-17）；`libero` 镜像已建成并验证能创建 Task 0 环境、渲染图像。Dockerfile 修了两处：去掉 LIBERO 自带的 robosuite==1.4.0 约束（与 openpi 的 1.4.1 冲突），sdist 构建限制 setuptools<70（Python 3.8）。
+- 步骤 A 完成（demos33 / demos10 数据集、`assets/libero_task0/norm_stats`）；步骤 B（SFT K=10）2026-11-17 11:00 开始，约 3.4 s/步，10k 步约 9.5 小时，日志 `logs/train_sft_k10.log`。
 
 给 Docker daemon 配代理（需 sudo）：
 ```bash

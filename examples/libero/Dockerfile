@@ -41,9 +41,14 @@ COPY ./examples/libero/requirements.txt /tmp/requirements.txt
 COPY ./third_party/libero/requirements.txt /tmp/requirements-libero.txt
 COPY ./packages/openpi-client/pyproject.toml /tmp/openpi-client/pyproject.toml
 
+# LIBERO's own requirements pin robosuite==1.4.0, which conflicts with the 1.4.1 that openpi tested; keep 1.4.1.
+RUN sed -i '/robosuite/d' /tmp/requirements-libero.txt
+
 # Install python dependencies.
 RUN uv venv --python 3.8 $UV_PROJECT_ENVIRONMENT
-RUN uv pip sync /tmp/requirements.txt /tmp/requirements-libero.txt /tmp/openpi-client/pyproject.toml --extra-index-url https://download.pytorch.org/whl/cu113 --index-strategy=unsafe-best-match
+# sdists such as easydict==1.9 must build with a setuptools that still supports Python 3.8.
+RUN echo 'setuptools<70' > /tmp/build-constraints.txt
+RUN uv pip sync /tmp/requirements.txt /tmp/requirements-libero.txt /tmp/openpi-client/pyproject.toml --build-constraint /tmp/build-constraints.txt --extra-index-url https://download.pytorch.org/whl/cu113 --index-strategy=unsafe-best-match
 ENV PYTHONPATH=/app:/app/packages/openpi-client/src:/app/third_party/libero
 
 # Create a default config file to avoid an input prompt from LIBERO's init script.

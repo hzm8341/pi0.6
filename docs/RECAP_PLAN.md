@@ -124,3 +124,4 @@
 | 2026-11-14 | 完成评估，制定本计划；开始 Phase 1 |
 | 2026-11-14 | Phase 1 完成（1.1–1.6）；Phase 2 代码完成 2.1–2.5（共享主干 value head、`pi05_recap_value` 配置、`label_recap_with_value.py`），待真实数据验证 |
 | 2026-11-16 | Phase 4 代码完成（LoRA 配置、rollout 记录、数据集构建、`--cfg-beta`）；33 条 Task-0 示范已下载；LIBERO 客户端 Docker 镜像因 Docker daemon 无代理拉不到 docker.io 而未建成 |
+| 2026-11-17 | `pi05_base` 下完；`libero` 镜像建成（修 robosuite 版本冲突与 setuptools）；步骤 A 完成；SFT（K=10）开始训练 |

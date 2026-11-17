@@ -125,3 +125,5 @@
 | 2026-11-14 | Phase 1 完成（1.1–1.6）；Phase 2 代码完成 2.1–2.5（共享主干 value head、`pi05_recap_value` 配置、`label_recap_with_value.py`），待真实数据验证 |
 | 2026-11-16 | Phase 4 代码完成（LoRA 配置、rollout 记录、数据集构建、`--cfg-beta`）；33 条 Task-0 示范已下载；LIBERO 客户端 Docker 镜像因 Docker daemon 无代理拉不到 docker.io 而未建成 |
 | 2026-11-17 | `pi05_base` 下完；`libero` 镜像建成（修 robosuite 版本冲突与 setuptools）；步骤 A 完成；SFT（K=10）开始训练 |
+| 2026-11-17 | SFT K=10 @2.5k 步：Task 0 成功率 26/50 = 52%（成功 episode 平均 297 步），达到约 50% 目标，提前停训；开始用该检查点采 500 条 rollout（episode 50–549） |
+| 2026-11-17 | 500 条 rollout 采完：273/500 = 54.6% 成功，35GB；开始步骤 D（RECAP 数据集 + 代理标签）→ E（value 训练） |

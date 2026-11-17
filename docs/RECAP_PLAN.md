@@ -127,3 +127,4 @@
 | 2026-11-17 | `pi05_base` 下完；`libero` 镜像建成（修 robosuite 版本冲突与 setuptools）；步骤 A 完成；SFT（K=10）开始训练 |
 | 2026-11-17 | SFT K=10 @2.5k 步：Task 0 成功率 26/50 = 52%（成功 episode 平均 297 步），达到约 50% 目标，提前停训；开始用该检查点采 500 条 rollout（episode 50–549） |
 | 2026-11-17 | 500 条 rollout 采完：273/500 = 54.6% 成功，35GB；开始步骤 D（RECAP 数据集 + 代理标签）→ E（value 训练） |
+| 2026-11-17 | 步骤 D 完成（510 episode / 207,593 帧）；value @2.5k 步停训，学习版标签：Spearman(V, return)=0.907（训练集上，无留出集），MAE 0.081，positive 30.0%；按来源 positive 比例：示范 40%、成功 rollout 41%、失败 rollout 22%；V(o_0) 成功 −0.76 / 失败 −0.92。标签在 `outputs/libero_task0/labels_value_s2500`。21:00 起 GPU 让出，暂停；下一步 F：`pi05_recap_libero_lora` |

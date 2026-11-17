@@ -61,6 +61,8 @@ git push git@github.com:hzm8341/pi0.6.git feat/recap-phase1
 - Phase 4 代码已写完并在小数据上跑通，完整命令见 `docs/recap_libero.md`（步骤 A–G）。
 - Docker daemon 已配代理（2026-11-17）；`libero` 镜像已建成并验证能创建 Task 0 环境、渲染图像。Dockerfile 修了两处：去掉 LIBERO 自带的 robosuite==1.4.0 约束（与 openpi 的 1.4.1 冲突），sdist 构建限制 setuptools<70（Python 3.8）。
 - 步骤 A 完成（demos33 / demos10 数据集、`assets/libero_task0/norm_stats`）；步骤 B（SFT K=10）2026-11-17 11:00 开始，约 3.4 s/步，10k 步约 9.5 小时，日志 `logs/train_sft_k10.log`。
+- 2026-11-17 晚：SFT@2.5k = 52%；500 rollout 54.6% 成功；value@2.5k Spearman 0.907；学习版标签在 `outputs/libero_task0/labels_value_s2500/lerobot_fields.npz`。暂停中（21:00 后 GPU 给其他任务）。恢复时直接跑步骤 F：
+  `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 .venv/bin/python scripts/train.py pi05_recap_libero_lora --data.recap-fields-path outputs/libero_task0/labels_value_s2500/lerobot_fields.npz --exp-name r1 --overwrite --no-wandb-enabled`
 
 给 Docker daemon 配代理（需 sudo）：
 ```bash

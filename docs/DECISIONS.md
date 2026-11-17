@@ -8,3 +8,4 @@
 - 2026-11-14 ｜ 建议（未确认）：LIBERO 对照使用原生 MuJoCo/robosuite 版 LIBERO（与 RLinf 设置一致），Isaac Sim 5.1 留给后续试管任务的自建场景 ｜ LIBERO 本身基于 MuJoCo，换仿真器无法与 RLinf 数字对比 ｜ Claude 建议
 - 2026-11-14 ｜ LIBERO 对照第一轮用中等规模：LIBERO-10 Task 0，500 条 rollout，SFT/value/RECAP 各训练 10k 步，单卡 5090 + LoRA ｜ 兼顾可信度与时间（约 1.5–2 天）；小于 100 条 value 易过拟合 ｜ 用户
 - 2026-11-16 ｜ 建议（未确认）：LIBERO 三个 LoRA 配置统一 batch 32、10k 步、cosine LR（峰值 5e-5）；norm stats 用全部 33 条示范算一份共用；奖励按 libero_10 步数上限 520 归一化；示范默认不强制 positive（`--demos-as-intervention` 可开）；rollout 从第 50 个 episode 开始采，与评估的 50 个 episode 区分 ｜ 保证 SFT / value / RECAP 可比，单卡 5090 放得下 ｜ Claude 建议
+- 2026-11-17 ｜ SFT（K=10）在 2.5k 步检查点先评估 50 次；成功率接近 50% 就提前停训、直接采 500 条 rollout，否则续训 ｜ 10 条示范跑 10k 步约 9.5 小时且大概率过多，省时间 ｜ Claude 建议，用户确认（"可以"）

@@ -538,6 +538,10 @@ class TrainConfig:
     # Precision for PyTorch training.
     pytorch_training_precision: Literal["bfloat16", "float32"] = "bfloat16"
 
+    # PyTorch only: split each optimizer step's `batch_size` into this many micro-batches (gradient accumulation).
+    # `batch_size` stays the effective batch size; the data loader yields `batch_size // gradient_accumulation_steps`.
+    gradient_accumulation_steps: int = 1
+
     lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.CosineDecaySchedule)
     optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.AdamW)
     ema_decay: float | None = 0.99

@@ -23,6 +23,7 @@ Multi-Node Training:
 
 """
 
+import contextlib
 import dataclasses
 import gc
 import logging
@@ -123,7 +124,11 @@ def set_seed(seed: int, local_rank: int):
 
 
 def build_datasets(config: _config.TrainConfig):
-    # Use the unified data loader with PyTorch framework
+    # Use the unified data loader with PyTorch framework. With gradient accumulation the loader yields micro-batches.
+    accum = config.gradient_accumulation_steps
+    if accum < 1 or config.batch_size % accum != 0:
+        raise ValueError(f"batch_size={config.batch_size} must be divisible by gradient_accumulation_steps={accum}")
+    config = dataclasses.replace(config, batch_size=config.batch_size // accum)
     data_loader = _data.create_data_loader(config, framework="pytorch", shuffle=True)
     return data_loader, data_loader.data_config()
 
@@ -506,6 +511,14 @@ def train_loop(config: _config.TrainConfig):
         else None
     )
 
+    accum_steps = config.gradient_accumulation_steps
+    if is_main:
+        logging.info(
+            f"Gradient accumulation: {accum_steps} micro-batches of {config.batch_size // accum_steps} per optimizer step"
+        )
+    micro_step = 0
+    accum_loss = 0.0
+
     while global_step < config.num_train_steps:
         # Set epoch for distributed training
         if use_ddp and hasattr(loader, "set_epoch"):
@@ -535,8 +548,18 @@ def train_loop(config: _config.TrainConfig):
 
             loss = losses.mean()
 
-            # Backward pass
-            loss.backward()
+            # Backward pass. Scale by the number of micro-batches so the accumulated gradient is the batch mean;
+            # skip DDP gradient sync on all but the last micro-batch.
+            micro_step += 1
+            is_update_step = micro_step % accum_steps == 0
+            sync_context = model.no_sync() if (use_ddp and not is_update_step) else contextlib.nullcontext()
+            with sync_context:
+                (loss / accum_steps).backward()
+            accum_loss += loss.item() / accum_steps
+            if not is_update_step:
+                continue
+            loss = torch.tensor(accum_loss)
+            accum_loss = 0.0
 
             # Log memory usage after backward pass
             if global_step < 5 and is_main and torch.cuda.is_available():

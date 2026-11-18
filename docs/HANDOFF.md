@@ -77,3 +77,13 @@ LIBERO 客户端推荐用 Docker（`examples/libero/compose.yml`，Python 3.8 + 
 
 - value 大量相同时，`assign_advantage_labels` 用 `>=` 阈值会让 positive 比例远超设定（假数据上 30% → 87.5%）。
 - 还没有在任何真实数据上训练过，RECAP 是否有效尚无证据。
+
+## 8. 用户休假期间的自主执行计划（2026-11-18 晚 → 2026-11-23）
+
+用户授权期间不咨询、自行使用 GPU（见 DECISIONS.md）。GPU 由 T-Rex 后训练占用至约 11-19 中午，不要停它；等它结束且 `nvidia-smi` 无进程再开始。按顺序：
+
+1. `scripts/libero/full_ft_trial.sh`：单卡全量试跑（约 30 分钟 + 权重转换）。结果（显存峰值、每步耗时、loss、梯度累积是否正常）写进 DECISIONS.md；按 `docs/pi05全量训练_单卡5090方案.md` 第 3 节判断方案 A / B / 租 A100，并估算正式训练总时长。
+2. `scripts/libero/run_step_f_g.sh`：RECAP 训练到 2.5k 步 + β=1/1.5/2 评估（约 3 小时），与 SFT 52% 对比。
+3. 过滤 BC 消融：demos10 + 成功 rollout → `local/libero_task0_filtered`，`pi05_libero_lora_fewshot` 训到 2.5k 步并评估（约 2.6 小时）。
+4. 视结果：RECAP 不如预期时续训到 5k 步再评估；有余力再做留出集 value 评估（Phase 2.6）、第二轮 RECAP 迭代（用 π_RECAP 采新 rollout）。
+5. 每完成一步更新 RECAP_PLAN 进度日志并提交推送。

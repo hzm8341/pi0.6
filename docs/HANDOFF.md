@@ -87,3 +87,7 @@ LIBERO 客户端推荐用 Docker（`examples/libero/compose.yml`，Python 3.8 + 
 3. 过滤 BC 消融：demos10 + 成功 rollout → `local/libero_task0_filtered`，`pi05_libero_lora_fewshot` 训到 2.5k 步并评估（约 2.6 小时）。
 4. 视结果：RECAP 不如预期时续训到 5k 步再评估；有余力再做留出集 value 评估（Phase 2.6）、第二轮 RECAP 迭代（用 π_RECAP 采新 rollout）。
 5. 每完成一步更新 RECAP_PLAN 进度日志并提交推送。
+
+**2026-11-18 21:11 状态：** 内存耗尽（可用约 1 GB，swap 63/63 GB 用满；主要是 T-Rex PID 3700589 约 69 GB 加它的 pt_data_worker），Claude Code 把本会话所有后台任务都停了：GPU 等待链（`wait_gpu_free.sh` → `full_ft_trial.sh` → `run_step_f_g.sh`）和截止守卫（`deadline_guard.sh`）。这些任务当时都还在等待，GPU 上没有跑任何本项目作业。按 Claude Code 的规则，被这样停掉的任务不能自行重启，要等用户要求，所以自主计划在这里暂停。恢复方法：在 Claude Code 里让我重启，或手动运行
+`scripts/libero/deadline_guard.sh > logs/deadline_guard.log 2>&1 &` 和
+`scripts/libero/wait_gpu_free.sh && scripts/libero/full_ft_trial.sh > logs/full_ft_trial_driver.log 2>&1; scripts/libero/run_step_f_g.sh > logs/run_step_f_g.log 2>&1`

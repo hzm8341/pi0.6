@@ -946,6 +946,29 @@ _CONFIGS = [
         save_interval=2_500,
         keep_period=2_500,
     ),
+    # Full fine-tuning (no LoRA) on a single 32GB GPU via the PyTorch trainer, same Task-0 data and norm stats as
+    # the LoRA configs (docs/pi05全量训练_单卡5090方案.md). Effective batch 32 = 8 micro-batches of 4.
+    # Weights: examples/convert_jax_model_to_pytorch.py --config-name pi05_libero_task0_full_pytorch
+    #   --checkpoint-dir ~/.cache/openpi/openpi-assets/checkpoints/pi05_base --output-path <pytorch_weight_path>
+    TrainConfig(
+        name="pi05_libero_task0_full_pytorch",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/libero_task0_demos10",
+            assets=_LIBERO_TASK0_ASSETS,
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        pytorch_weight_path=str(pathlib.Path("~/.cache/openpi/openpi-assets/checkpoints/pi05_base_pytorch").expanduser()),
+        pytorch_training_precision="bfloat16",
+        gradient_accumulation_steps=8,
+        ema_decay=None,
+        lr_schedule=_LIBERO_LORA_LR,
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        batch_size=32,
+        num_train_steps=10_000,
+        save_interval=2_500,
+        keep_period=2_500,
+    ),
     #
     # Fine-tuning Aloha configs.
     #

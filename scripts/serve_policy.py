@@ -50,7 +50,7 @@ class Args:
     # "Advantage: positive" conditioned policy; >1 enables CFG.
     cfg_beta: float | None = None
     # RECAP only: condition requests on this advantage indicator instead of the default "positive"
-    # (e.g. --no-advantage-indicator to check how much the conditioning matters). Needs a config whose
+    # (e.g. --advantage-indicator False to check how much the conditioning matters). Needs a config whose
     # `data.model_transforms` is a ReCAPModelTransformFactory.
     advantage_indicator: bool | None = None
 

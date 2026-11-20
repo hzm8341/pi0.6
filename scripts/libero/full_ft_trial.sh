@@ -5,6 +5,9 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 CFG=pi05_libero_task0_full_pytorch
+# .venv torch (cu126) has no sm_120 kernels; prefer the cu128 build installed separately (docs/DECISIONS.md 2026-11-20).
+TORCH_CU128=${TORCH_CU128:-/media/hzm/data24t/envs/torch_cu128}
+[[ -d $TORCH_CU128 ]] && export PYTHONPATH=$TORCH_CU128${PYTHONPATH:+:$PYTHONPATH}
 W=$HOME/.cache/openpi/openpi-assets/checkpoints/pi05_base_pytorch
 if [[ -n "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]]; then echo "GPU busy, abort"; nvidia-smi; exit 1; fi
 free -g

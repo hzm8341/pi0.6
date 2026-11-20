@@ -190,6 +190,8 @@ class ModelTransformFactory(GroupFactory):
 class ReCAPModelTransformFactory(GroupFactory):
     default_prompt: str | None = None
     advantage_max_len: int = 8
+    # Indicator for samples without `advantage_indicator` (inference requests): True = "Advantage: positive".
+    default_indicator: bool | None = True
 
     def __call__(self, model_config: _model.BaseModelConfig) -> _transforms.Group:
         group = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
@@ -201,6 +203,7 @@ class ReCAPModelTransformFactory(GroupFactory):
                 _transforms.TokenizeReCAPAdvantage(
                     _tokenizer.PaligemmaTokenizer(self.advantage_max_len),
                     max_len=self.advantage_max_len,
+                    default_indicator=self.default_indicator,
                 )
             ]
         )

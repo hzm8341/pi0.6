@@ -49,6 +49,10 @@ class Args:
     # RECAP only: classifier-free guidance scale. None uses the config's `recap.cfg_beta`; 1.0 samples the
     # "Advantage: positive" conditioned policy; >1 enables CFG.
     cfg_beta: float | None = None
+    # RECAP only: condition requests on this advantage indicator instead of the default "positive"
+    # (e.g. --no-advantage-indicator to check how much the conditioning matters). Needs a config whose
+    # `data.model_transforms` is a ReCAPModelTransformFactory.
+    advantage_indicator: bool | None = None
 
     # Port to serve the policy on.
     port: int = 8000
@@ -94,8 +98,16 @@ def create_policy(args: Args) -> _policy.Policy:
     match args.policy:
         case Checkpoint():
             sample_kwargs = {"cfg_beta": args.cfg_beta} if args.cfg_beta is not None else None
+            train_config = _config.get_config(args.policy.config)
+            if args.advantage_indicator is not None:
+                model_transforms = dataclasses.replace(
+                    train_config.data.model_transforms, default_indicator=args.advantage_indicator
+                )
+                train_config = dataclasses.replace(
+                    train_config, data=dataclasses.replace(train_config.data, model_transforms=model_transforms)
+                )
             return _policy_config.create_trained_policy(
-                _config.get_config(args.policy.config),
+                train_config,
                 args.policy.dir,
                 default_prompt=args.default_prompt,
                 sample_kwargs=sample_kwargs,

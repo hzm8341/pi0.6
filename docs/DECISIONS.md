@@ -25,3 +25,4 @@
 - 2026-11-20 ｜ 跑方案 B（DeepSpeed 优化器放内存）前若有 Abaqus 在运行，就等它结束再开始（同时仍要求可用内存 ≥70GB）；方案 B 跑完后通知其他会话（如 FEM_sim）内存已释放 ｜ 方案 B 占 55–60GB 内存，与 Abaqus 同跑有内存耗尽风险 ｜ 用户
 - 2026-11-20 ｜ PEAR 推迟：等 pi0.6 在 11-21 12:00 后的后续实验（过滤 BC、续训 5k、第二轮 RECAP 等）全部跑完、GPU 空出后再启动；届时由本会话 SendMessage 通知 code-e6 启动 PEAR，并抄送 fem-sim-f9。11-21 00:45 守卫 / 01:00–12:00 不用 GPU 暂不改，等用户决定 ｜ 用户安排 GPU ｜ 用户（经协调会话 fem-sim-f9 转达）
 - 2026-11-20 ｜ 取消 11-21 00:45 守卫和 01:00–12:00 空档；方案 A 试跑后直接接着跑：过滤 BC → RECAP 续训到 5k 并评估 → 第二轮 RECAP → 留出集 value 评估；全部做完通知 code-e6（抄送 fem-sim-f9）；方案 B 规则不变 ｜ 那段空档原是给 PEAR 的，PEAR 已推迟 ｜ 用户（经 fem-sim-f9 转达）
+- 2026-11-20 ｜ 单卡 5090 全量试跑方案 A（纯 bf16）不可行：bf16 权重 7.47GB（约 3.7B 参数），backward 后 14.2GB，AdamW 第一次 step 建 m/v 状态时 OOM（约 30.5GB 已分配）；与 batch 无关（batch 4 和 8=2×4 都在同一处 OOM），batch 1 也放不下。按方案文档第 3 节转方案 B（DeepSpeed ZeRO-2 优化器放内存）：先在 train_pytorch.py 接入，GPU 空档时试跑，试跑前检查无 Abaqus 且可用内存 ≥70GB。建议（未确认）：也可试 8-bit Adam（m/v 约 7.5GB，总约 22GB），但不在原方案里 ｜ 试跑实测 ｜ Claude（用户授权休假期间自行决定）

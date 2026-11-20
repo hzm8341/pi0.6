@@ -541,6 +541,9 @@ class TrainConfig:
     # PyTorch only: split each optimizer step's `batch_size` into this many micro-batches (gradient accumulation).
     # `batch_size` stays the effective batch size; the data loader yields `batch_size // gradient_accumulation_steps`.
     gradient_accumulation_steps: int = 1
+    # PyTorch only: keep the fp32 master weights and AdamW moments in CPU RAM and run the update on the CPU
+    # (single-GPU full fine-tuning, see src/openpi/training/cpu_offload_adamw.py). Needs ~12 bytes/param of RAM.
+    pytorch_optimizer_offload: bool = False
 
     lr_schedule: _optimizer.LRScheduleConfig = dataclasses.field(default_factory=_optimizer.CosineDecaySchedule)
     optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.AdamW)

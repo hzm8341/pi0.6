@@ -460,7 +460,13 @@ def train_loop(config: _config.TrainConfig):
     end_lr = config.lr_schedule.decay_lr
 
     # Create optimizer with config parameters
-    optim = torch.optim.AdamW(
+    optim_cls = torch.optim.AdamW
+    if config.pytorch_optimizer_offload:
+        from openpi.training.cpu_offload_adamw import CPUOffloadAdamW
+
+        optim_cls = CPUOffloadAdamW
+        logging.info("Optimizer offload: fp32 master weights and AdamW moments in CPU RAM")
+    optim = optim_cls(
         model.parameters(),
         lr=peak_lr,
         betas=(config.optimizer.b1, config.optimizer.b2),
@@ -569,7 +575,10 @@ def train_loop(config: _config.TrainConfig):
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.optimizer.clip_gradient_norm)
 
             # Optimizer step
+            t_optim = time.time()
             optim.step()
+            if global_step < 5 and is_main:
+                logging.info(f"optimizer step took {time.time() - t_optim:.2f}s")
             optim.zero_grad(set_to_none=True)
 
             # Clear gradients more aggressively

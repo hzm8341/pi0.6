@@ -128,3 +128,5 @@
 | 2026-11-17 | SFT K=10 @2.5k 步：Task 0 成功率 26/50 = 52%（成功 episode 平均 297 步），达到约 50% 目标，提前停训；开始用该检查点采 500 条 rollout（episode 50–549） |
 | 2026-11-17 | 500 条 rollout 采完：273/500 = 54.6% 成功，35GB；开始步骤 D（RECAP 数据集 + 代理标签）→ E（value 训练） |
 | 2026-11-17 | 步骤 D 完成（510 episode / 207,593 帧）；value @2.5k 步停训，学习版标签：Spearman(V, return)=0.907（训练集上，无留出集），MAE 0.081，positive 30.0%；按来源 positive 比例：示范 40%、成功 rollout 41%、失败 rollout 22%；V(o_0) 成功 −0.76 / 失败 −0.92。标签在 `outputs/libero_task0/labels_value_s2500`。21:00 起 GPU 让出，暂停；下一步 F：`pi05_recap_libero_lora` |
+| 2026-11-20 | T-Rex 结束后恢复。全量试跑第一次失败：`.venv` 的 torch 2.7.1+cu126 没有 sm_120 内核，另装 cu128 版到 `/media/hzm/data24t/envs/torch_cu128`，排在 RECAP 后面重跑 |
+| 2026-11-20 | 步骤 F/G：RECAP r1 @2.5k 步，同样 50 个初始状态（episode 0–49）：β=1.0 27/50 = 54%，β=1.5 19/50 = 38%，β=2.0 24/50 = 48%（SFT 52%）。成功 episode 平均步数 296 / 287 / 293（SFT 297）。和 SFT 逐 episode 配对：β=1.0 两者都成功 19、只有 SFT 成功 7、只有 RECAP 成功 8，差异在 50 次评估的噪声内（标准误约 7%）。结论：2.5k 步时 RECAP 没有明显优于 SFT，CFG 加大 β 反而变差。下一步：过滤 BC 对照，RECAP 续训到 5k 步 |

@@ -24,14 +24,16 @@ def _dummy_obs(value: float = 0.0, cams=("base_0_rgb",)) -> dict:
     return obs
 
 
-def _make_policy(K: int = 4, cams=None) -> MEMPolicy:
+def _make_policy(K: int = 4, cams=None, **kwargs) -> MEMPolicy:
     mock_model = MagicMock()
     mock_model.sample_actions.return_value = np.zeros((1, 50, 32))
-    return MEMPolicy(
-        model=mock_model,
-        num_video_frames=K,
-        camera_keys=list(cams or ("base_0_rgb",)),
-    )
+    with patch("openpi.policies.policy.nnx_utils.module_jit", side_effect=lambda meth: meth):
+        return MEMPolicy(
+            model=mock_model,
+            num_video_frames=K,
+            camera_keys=list(cams or ("base_0_rgb",)),
+            **kwargs,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -117,16 +119,10 @@ class TestMEMPolicyMemoryInjection:
             config=HighLevelPolicyConfig(max_memory_tokens=32, subtask_trigger_steps=100),
         )
         hl.reset("task")
-        hl._language_memory = "I did something."
 
-        mock_model = MagicMock()
-        mock_model.sample_actions.return_value = np.zeros((1, 50, 32))
-        pol = MEMPolicy(
-            model=mock_model,
-            high_level_policy=hl,
-            num_video_frames=1,
-        )
+        pol = _make_policy(K=1, high_level_policy=hl)
         pol.reset_episode("task")
+        hl._language_memory = "I did something."
 
         aug = pol._build_obs_with_history(_dummy_obs())
         # Manually check: infer() would inject tokens, test _build_obs_with_history here

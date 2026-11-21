@@ -44,3 +44,11 @@ def test_pi0_all_lora():
     assert len(state) == 17
     assert all("lora" not in p for p in state)
     assert all("llm" in p for p in state)
+
+
+def test_pi0_mem_video_model_creates():
+    config = _pi0_config.Pi0Config(pi05=True, mem=_pi0_config.MEMConfig(use_video_memory=True, video_memory_frames=6))
+    abstract_model = nnx.eval_shape(config.create, jax.random.key(0))
+    vision = nnx.state(abstract_model.PaliGemma["img"]).to_pure_dict()
+    assert "encoderblock_0" in vision["Transformer"]
+    assert vision["head"]["kernel"].shape[0] == vision["embedding"]["kernel"].shape[-1]

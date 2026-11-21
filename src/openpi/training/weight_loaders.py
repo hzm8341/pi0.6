@@ -1,7 +1,7 @@
 import dataclasses
 import logging
 import re
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import flax.traverse_util
 import numpy as np
@@ -73,6 +73,31 @@ class PaliGemmaWeightLoader(WeightLoader):
         return _merge_params(loaded_params, params, missing_regex=".*")
 
 
+def _unstack_scanned_layers(flat_loaded: dict[str, Any], flat_ref: dict[str, Any]) -> dict[str, Any]:
+    """Splits scan-stacked SigLIP layers into the per-layer keys a video-memory (K > 1) encoder uses.
+
+    Released checkpoints store the vision tower as one `encoderblock` with a leading depth axis. The K > 1 encoder
+    names each layer `encoderblock_{i}` instead, so without this split none of its layers would load.
+    """
+    result = {}
+    for key, value in flat_loaded.items():
+        prefix, sep, rest = key.partition("/encoderblock/")
+        if not sep or key in flat_ref or f"{prefix}/encoderblock_0/{rest}" not in flat_ref:
+            result[key] = value
+            continue
+        depth = value.shape[0]
+        if (
+            f"{prefix}/encoderblock_{depth - 1}/{rest}" not in flat_ref
+            or f"{prefix}/encoderblock_{depth}/{rest}" in flat_ref
+        ):
+            raise ValueError(
+                f"Checkpoint {key} has {depth} layers, which does not match the model's encoderblock_* layers."
+            )
+        for i in range(depth):
+            result[f"{prefix}/encoderblock_{i}/{rest}"] = value[i]
+    return result
+
+
 def _merge_params(loaded_params: at.Params, params: at.Params, *, missing_regex: str) -> at.Params:
     """Merges the loaded parameters with the reference parameters.
 
@@ -85,7 +110,7 @@ def _merge_params(loaded_params: at.Params, params: at.Params, *, missing_regex:
         A new dictionary with the merged parameters.
     """
     flat_ref = flax.traverse_util.flatten_dict(params, sep="/")
-    flat_loaded = flax.traverse_util.flatten_dict(loaded_params, sep="/")
+    flat_loaded = _unstack_scanned_layers(flax.traverse_util.flatten_dict(loaded_params, sep="/"), flat_ref)
 
     # First, take all weights that are a subset of the reference weights.
     result = {}

@@ -127,9 +127,9 @@ class Observation(Generic[ArrayT]):
     advantage_indicator: at.Bool[ArrayT, "*b"] | None = None
     use_advantage: at.Bool[ArrayT, "*b"] | None = None
     is_human_intervention: at.Bool[ArrayT, "*b"] | None = None
-    tokenized_advantage_positive: at.Int[ArrayT, "*b l"] | None = None
-    tokenized_advantage_negative: at.Int[ArrayT, "*b l"] | None = None
-    tokenized_advantage_mask: at.Bool[ArrayT, "*b l"] | None = None
+    tokenized_advantage_positive: at.Int[ArrayT, "*b adv"] | None = None
+    tokenized_advantage_negative: at.Int[ArrayT, "*b adv"] | None = None
+    tokenized_advantage_mask: at.Bool[ArrayT, "*b adv"] | None = None
 
     @classmethod
     def from_dict(cls, data: at.PyTree[ArrayT]) -> "Observation[ArrayT]":

@@ -619,7 +619,10 @@ _CONFIGS = [
     TrainConfig(
         name="pi05_recap",
         model=pi0_config.Pi0Config(pi05=True, recap=pi0_config.ReCAPConfig(enabled=True)),
-        data=SimpleDataConfig(model_transforms=ReCAPModelTransformFactory()),
+        data=SimpleDataConfig(
+            data_transforms=lambda model: _transforms.Group(),
+            model_transforms=ReCAPModelTransformFactory(),
+        ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,

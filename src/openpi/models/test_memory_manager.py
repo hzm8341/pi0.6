@@ -126,10 +126,10 @@ class TestMemoryDataGenerator:
 class TestHighLevelPolicy:
     def test_reset_clears_state(self, hl_policy):
         hl_policy._language_memory = "old memory"
-        hl_policy._episode_step = 99
+        hl_policy._step_count = 99
         hl_policy.reset("Clean the kitchen")
         assert hl_policy.language_memory == ""
-        assert hl_policy._episode_step == 0
+        assert hl_policy._step_count == 0
         assert hl_policy._task_goal == "Clean the kitchen"
 
     def test_update_returns_subtask_and_memory(self, hl_policy):

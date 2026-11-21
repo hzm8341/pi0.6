@@ -10,6 +10,7 @@ Critical properties verified:
 
 from __future__ import annotations
 
+import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -41,6 +42,19 @@ def _make_module(K: int = 1, depth: int = 4, scan: bool = False):
     )
 
 
+def _unstack_encoder_params(variables, depth: int):
+    """Map scan-layout params (stacked ``encoderblock``) to per-layer ``encoderblock_{i}``."""
+    flat = flax.traverse_util.flatten_dict(variables["params"])
+    unstacked = {}
+    for path, value in flat.items():
+        if path[:2] == ("Transformer", "encoderblock"):
+            for i in range(depth):
+                unstacked[("Transformer", f"encoderblock_{i}", *path[2:])] = value[i]
+        else:
+            unstacked[path] = value
+    return {"params": flax.traverse_util.unflatten_dict(unstacked)}
+
+
 def _init_and_call(model, imgs, key=None):
     if key is None:
         key = jax.random.PRNGKey(0)
@@ -66,13 +80,17 @@ class TestSingleFrameEquivalence:
         # Original (scan, no video params)
         orig = _Module(num_classes=0, pool_type="none", scan=True, **cfg)
         vars_orig = orig.init(key, imgs, train=False)
-        out_orig, _ = orig.apply(vars_orig, imgs, train=False)
 
         # K=1 video encoder (non-scan path, but same weights)
         vid = _Module(num_classes=0, pool_type="none", scan=False,
                       num_timesteps=1, **cfg)
-        vars_vid = vid.init(key, imgs, train=False)
-        out_vid, _ = vid.apply(vars_vid, imgs, train=False)
+        vars_vid = _unstack_encoder_params(vars_orig, depth=cfg["depth"])
+        assert jax.tree.structure(vars_vid) == jax.tree.structure(vid.init(key, imgs, train=False))
+
+        # Reduced-precision GPU matmuls (TF32) differ by ~1e-3 depending on the kernel XLA autotunes.
+        with jax.default_matmul_precision("highest"):
+            out_orig, _ = orig.apply(vars_orig, imgs, train=False)
+            out_vid, _ = vid.apply(vars_vid, imgs, train=False)
 
         max_diff = float(jnp.max(jnp.abs(out_orig - out_vid)))
         assert max_diff < 1e-5, (
@@ -91,10 +109,12 @@ class TestMultiFrameShape:
         key = jax.random.PRNGKey(0)
         # Input: B*K frames flattened
         imgs = jnp.ones((B * K, 32, 32, 3))
-        out, _ = _init_and_call(model, imgs)
+        variables = model.init(key, imgs, train=False)
+        out, aux = model.apply(variables, imgs, train=False)
         # N = (32/16)^2 = 4 for mu/16, width=32
         assert out.shape[0] == B, f"Batch dim wrong: {out.shape}"
         assert out.ndim == 3, f"Expected 3-D output (B, N, D), got shape {out.shape}"
+        assert aux["pre_logits_2d"].shape == (B, 2, 2, 32), aux["pre_logits_2d"].shape
 
 
 class TestTemporalInformationFlow:

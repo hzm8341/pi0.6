@@ -425,7 +425,7 @@ class _Module(nn.Module):
         else:
             raise ValueError(f"Unknown pool type: '{self.pool_type}'")
 
-        x_2d = jnp.reshape(encoded, [n, h, w, -1])
+        x_2d = jnp.reshape(encoded, [encoded.shape[0], h, w, -1])
 
         if self.rep_size:
             rep_size = self.width if self.rep_size is True else self.rep_size

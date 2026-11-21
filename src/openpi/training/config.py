@@ -967,6 +967,8 @@ _CONFIGS = [
         pytorch_weight_path=str(pathlib.Path("~/.cache/openpi/openpi-assets/checkpoints/pi05_base_pytorch").expanduser()),
         pytorch_training_precision="bfloat16",
         gradient_accumulation_steps=8,
+        # Plan B: AdamW state does not fit next to the bf16 weights/grads on 32GB (plan A OOMs at the first step).
+        pytorch_optimizer_offload=True,
         ema_decay=None,
         lr_schedule=_LIBERO_LORA_LR,
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),

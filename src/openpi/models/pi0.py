@@ -93,7 +93,8 @@ class Pi0(_model.BaseModel):
                 drop_history_after_layer=config.mem.drop_history_tokens_after_layer,
             )
         )
-        img.lazy_init(next(iter(config.fake_obs().images.values())), train=False, rngs=rngs)
+        fake_image = next(iter(config.fake_obs().images.values()))
+        img.lazy_init(jnp.repeat(fake_image, K, axis=0), train=False, rngs=rngs)
         self.PaliGemma = nnx.Dict(llm=llm, img=img)
         self.action_in_proj = nnx.Linear(config.action_dim, action_expert_config.width, rngs=rngs)
         if config.pi05:

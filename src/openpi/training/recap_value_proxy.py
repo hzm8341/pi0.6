@@ -10,12 +10,24 @@ def compute_proxy_rewards(
     *,
     step_penalty: float = -1.0,
     fail_penalty: float = -100.0,
+    fail_penalty_steps: float | None = None,
 ) -> np.ndarray:
+    """Per-step rewards normalized so that episode returns lie in [-1, 0].
+
+    Default ("clipped"): scale by the step limit, so a failed episode that runs to the limit already has return
+    -1 and `fail_penalty` is mostly clipped away. With `fail_penalty_steps=K` ("separated"): failure costs K extra
+    steps and the scale is (limit + K) steps, so nothing is clipped; with K = limit, successful returns lie in
+    [-0.5, 0] and failed returns in [-1, -0.5].
+    """
     episode_length = len(episode.frames)
     max_episode_length = episode.max_episode_length or episode_length
     rewards = np.full(episode_length, step_penalty, dtype=np.float32)
-    rewards[-1] = 0.0 if episode.success else fail_penalty
-    scale = abs(float(max_episode_length) * step_penalty)
+    if fail_penalty_steps is None:
+        rewards[-1] = 0.0 if episode.success else fail_penalty
+        scale = abs(float(max_episode_length) * step_penalty)
+    else:
+        rewards[-1] = 0.0 if episode.success else step_penalty * (1.0 + fail_penalty_steps)
+        scale = abs(step_penalty) * (float(max_episode_length) + fail_penalty_steps)
     return np.clip(rewards / scale, -1.0, 0.0)
 
 

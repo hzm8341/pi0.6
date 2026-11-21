@@ -28,13 +28,14 @@ def build_offline_recap_labels(
     *,
     positive_fraction: float,
     n_step_lookahead: int,
+    fail_penalty_steps: float | None = None,
 ) -> OfflineReCAPResult:
     collector_episodes: list[ReCAPEpisode] = []
     advantages_by_episode: list[np.ndarray] = []
     per_episode_values: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
 
     for episode in episodes:
-        rewards = compute_proxy_rewards(episode)
+        rewards = compute_proxy_rewards(episode, fail_penalty_steps=fail_penalty_steps)
         returns = compute_empirical_returns(rewards)
         values = compute_progress_value_proxy(episode)
         advantages = compute_n_step_advantages(rewards, values, n_step_lookahead=n_step_lookahead)

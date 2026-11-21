@@ -39,6 +39,13 @@ def main() -> None:
         default=50,
         help="N-step lookahead used in advantage estimation.",
     )
+    parser.add_argument(
+        "--fail-penalty-steps",
+        type=float,
+        default=None,
+        help="Failure costs this many extra steps and returns are scaled by (limit + K) steps, so the failure "
+        "penalty is not clipped (e.g. K = max_episode_length). Default: legacy clipped rewards.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
@@ -48,6 +55,7 @@ def main() -> None:
         episodes,
         positive_fraction=args.positive_fraction,
         n_step_lookahead=args.n_step_lookahead,
+        fail_penalty_steps=args.fail_penalty_steps,
     )
     write_recap_label_outputs(result, args.output_dir)
     logger.info("Wrote %d labeled timestep(s) to %s", len(result.records), args.output_dir)

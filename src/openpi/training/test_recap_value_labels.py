@@ -105,3 +105,23 @@ def test_recap_fields_dataset_loads_optional_value_target(tmp_path):
     assert merged[1]["value_target"].dtype == np.float32
     assert float(merged[1]["value_target"]) == -1.0
     assert merged[0]["advantage_indicator"].dtype == np.bool_
+
+
+def test_separated_rewards_keep_failure_penalty():
+    from openpi.training.recap_episode_io import _episode_from_dict
+    from openpi.training.recap_value_proxy import compute_empirical_returns
+    from openpi.training.recap_value_proxy import compute_proxy_rewards
+
+    def episode(length, success):
+        frames = [{"t": t, "action": [0.0]} for t in range(length)]
+        return _episode_from_dict(
+            {"episode_id": "e", "task": "x", "success": success, "max_episode_length": 10, "frames": frames}
+        )
+
+    fail = compute_empirical_returns(compute_proxy_rewards(episode(10, success=False), fail_penalty_steps=10))
+    slow = compute_empirical_returns(compute_proxy_rewards(episode(10, success=True), fail_penalty_steps=10))
+    fast = compute_empirical_returns(compute_proxy_rewards(episode(4, success=True), fail_penalty_steps=10))
+    assert fail[0] == pytest.approx(-1.0)
+    assert slow[0] == pytest.approx(-0.45)
+    assert fast[0] == pytest.approx(-0.15)
+    assert fail[-1] < -0.5 < slow[0]

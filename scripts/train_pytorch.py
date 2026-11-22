@@ -240,7 +240,13 @@ def load_checkpoint(model, optimizer, checkpoint_dir, device):
         optimizer_path = ckpt_dir / "optimizer.pt"
 
         if optimizer_path.exists():
-            optimizer_state_dict = torch.load(optimizer_path, map_location=device, weights_only=False)
+            from openpi.training.cpu_offload_adamw import CPUOffloadAdamW
+
+            if isinstance(optimizer, CPUOffloadAdamW):
+                # The offloaded fp32 state (~45GB) must stay in host RAM; mmap so loading does not hold a 2nd copy.
+                optimizer_state_dict = torch.load(optimizer_path, map_location="cpu", mmap=True, weights_only=False)
+            else:
+                optimizer_state_dict = torch.load(optimizer_path, map_location=device, weights_only=False)
             logging.info("Loaded optimizer state from pt format")
         else:
             raise FileNotFoundError(f"No optimizer checkpoint found at {ckpt_dir}")

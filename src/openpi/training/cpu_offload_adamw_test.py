@@ -41,3 +41,19 @@ def test_state_dict_roundtrip():
     _train(b, opt_b, steps=2)
     for p, q in zip(a.parameters(), b.parameters(), strict=True):
         torch.testing.assert_close(p, q)
+
+
+def test_resume_from_mmap_file(tmp_path):
+    # Mirrors scripts/train_pytorch.py load_checkpoint: optimizer.pt loaded to CPU with mmap.
+    kw = {"lr": 1e-2, "weight_decay": 1e-4}
+    a, b = _model(0), _model(0)
+    opt_a = CPUOffloadAdamW(a.parameters(), **kw)
+    _train(a, opt_a, steps=2)
+    torch.save(opt_a.state_dict(), tmp_path / "optimizer.pt")
+    b.load_state_dict(a.state_dict())
+    opt_b = CPUOffloadAdamW(b.parameters(), **kw)
+    opt_b.load_state_dict(torch.load(tmp_path / "optimizer.pt", map_location="cpu", mmap=True, weights_only=False))
+    _train(a, opt_a, steps=2)
+    _train(b, opt_b, steps=2)
+    for p, q in zip(a.parameters(), b.parameters(), strict=True):
+        torch.testing.assert_close(p, q)

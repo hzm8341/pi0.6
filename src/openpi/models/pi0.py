@@ -412,13 +412,22 @@ class Pi0(_model.BaseModel):
         return jnp.linspace(self.value_min, self.value_max, self.value_bins)
 
     def _value_cross_entropy(self, features, value_target):
-        """Cross-entropy against the nearest value bin (paper: discretized empirical returns, 201 bins)."""
+        """Cross-entropy against the nearest value bin (paper: discretized empirical returns, 201 bins).
+
+        NaN targets are masked out (held-out frames for value evaluation); the remaining frames are reweighted so
+        the batch mean equals the mean over valid frames.
+        """
         logits = self.value_head(features).astype(jnp.float32)
-        clipped = jnp.clip(value_target.astype(jnp.float32), self.value_min, self.value_max)
+        target = value_target.astype(jnp.float32)
+        valid = jnp.isfinite(target)
+        target = jnp.where(valid, target, self.value_min)
+        clipped = jnp.clip(target, self.value_min, self.value_max)
         scaled = (clipped - self.value_min) / (self.value_max - self.value_min)
         target_bins = jnp.round(scaled * (self.value_bins - 1)).astype(jnp.int32)
         log_probs = jax.nn.log_softmax(logits, axis=-1)
-        return -jnp.take_along_axis(log_probs, target_bins[:, None], axis=-1)[:, 0]
+        ce = -jnp.take_along_axis(log_probs, target_bins[:, None], axis=-1)[:, 0]
+        weight = valid.astype(jnp.float32) * (valid.shape[0] / jnp.maximum(valid.sum(), 1))
+        return ce * weight
 
     def predict_value(self, observation: _model.Observation):
         """Returns (expected value (b,), bin probabilities (b, bins)) for raw (unpreprocessed) observations."""

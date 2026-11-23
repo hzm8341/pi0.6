@@ -105,9 +105,11 @@ def relabel_with_values(
     values: np.ndarray,
     *,
     positive_fraction: float,
-    n_step_lookahead: int,
+    n_step_lookahead: int | None,
 ) -> OfflineReCAPResult:
     """Recomputes advantage labels from learned per-frame values.
+
+    `n_step_lookahead=None` uses the Monte Carlo advantage A_t = G_t - V(o_t) (no bootstrap).
 
     `records` are the rows of a previous `recap_labels.jsonl` (same frame order as the training
     dataset and as `values`). Rewards, episode grouping and human-intervention flags are reused;
@@ -132,9 +134,12 @@ def relabel_with_values(
     advantages_by_episode = []
     for group in groups:
         rewards = np.asarray([records[i]["reward"] for i in group], dtype=np.float32)
-        advantages_by_episode.append(
-            compute_n_step_advantages(rewards, values[group], n_step_lookahead=n_step_lookahead)
-        )
+        if n_step_lookahead is None:
+            advantages_by_episode.append(compute_empirical_returns(rewards) - values[group])
+        else:
+            advantages_by_episode.append(
+                compute_n_step_advantages(rewards, values[group], n_step_lookahead=n_step_lookahead)
+            )
         collector_episodes.append(
             ReCAPEpisode(
                 observations=[{}] * len(group),

@@ -22,6 +22,12 @@ LIBERO-10 Task 0。前几行是 50 次评估（标准误约 7%），最后一列
 - 全量微调（用户决定本机方案 B）：11-22 03:09–13:09 训到 2.5k 步（13.9 秒/步，loss 降到 0.004），200 次评估 **44.0%**，低于 LoRA SFT 的 50.5%，可能是在 10 条示范上过拟合。续训到 5k 没做：第一次恢复 OOM（已修），之后 Abaqus 作业跑到 11-23 01:40，剩余时间不够在 10:00 前跑完，已取消，GPU 空闲。要续训：`RESUME=1 STOP_STEP=5000 scripts/libero/run_full_ft_sft.sh`（约 10.5 小时，会先等 Abaqus、要求可用内存 ≥70GB）。
 - 可做的下一步：value 的留出集评估；改 value 的优势估计（例如用回合结果门控或更长的 N）。
 
+## 0.1 重启后继续（11-23 19:53 暂停）
+
+value 留出训练已完成（`checkpoints/pi05_recap_libero_value_lora/v2h/2500`），打标签进行到一半时为重启电脑而停止。重启后运行：
+`nohup scripts/libero/run_value_round2.sh > logs/run_value_round2.log 2>&1 &`
+脚本会跳过已完成的 checkpoint，从打标签开始（约 50 分钟），再跑 RECAP r4 / r5 与评估（约 10 小时）。
+
 ## 1. 当前状态一句话
 
 Phase 1（推理条件 / CFG / 单次前向 loss）和 Phase 2（π0.5 共享主干 value head + 学习版打标签）代码已完成并推送到分支 `feat/recap-phase1`（commit `48f7f19`，未开 PR）。正在开始 Phase 4：LIBERO-10 Task 0 上做 π0.5 SFT vs RECAP 对照，环境准备刚起步。
